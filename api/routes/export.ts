@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { supabaseAdmin } from '../config/supabase.js';
-import { authenticateToken } from '../middleware/index.js';
-import type { ExportRequest, ExportJob, ExportFormat } from '../../shared/types.js';
+import { supabaseAdmin } from '../config/supabase';
+import { authenticateToken } from '../middleware/index';
+import type { ExportRequest, ExportJob, ExportFormat } from '../../shared/types';
 
 const router = Router();
 

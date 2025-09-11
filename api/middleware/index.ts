@@ -3,10 +3,10 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import cors from 'cors';
-import { ApiError } from '../../shared/types.js';
+import { ApiError } from '../../shared/types';
 
 // Re-export auth middleware
-export { authenticateToken, optionalAuth, requireSubscription, allowGuest } from './auth.js';
+export { authenticateToken, optionalAuth, requireSubscription, allowGuest } from './auth';
 
 // CORS configuration
 export const corsOptions = {

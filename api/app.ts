@@ -1,10 +1,10 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
-import { corsOptions, generalRateLimit, securityMiddleware, loggingMiddleware, errorHandler, notFoundHandler } from './middleware/index.js';
-import authRoutes from './routes/auth.js';
-import extractRoutes from './routes/extract.js';
-import exportRoutes from './routes/export.js';
+import { corsOptions, generalRateLimit, securityMiddleware, loggingMiddleware, errorHandler, notFoundHandler } from './middleware/index';
+import authRoutes from './routes/auth';
+import extractRoutes from './routes/extract';
+import exportRoutes from './routes/export';
 
 // Load environment variables
 dotenv.config();

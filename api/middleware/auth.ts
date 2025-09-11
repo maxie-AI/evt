@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { supabaseAdmin } from '../config/supabase.js';
-import type { User } from '../../shared/types.js';
+import { supabaseAdmin } from '../config/supabase';
+import type { User } from '../../shared/types';
 
 // Extend Express Request type to include user
 declare global {

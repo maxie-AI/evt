@@ -5,7 +5,7 @@ import { promises as fs } from 'fs';
 import { createReadStream, createWriteStream } from 'fs';
 import { randomUUID } from 'crypto';
 import { existsSync, unlinkSync } from 'fs';
-import { VideoPlatform } from '../../shared/types.js';
+import { VideoPlatform } from '../../shared/types';
 
 function getYtDlpPath(): string {
   // Known Windows installation path

@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { supabaseAdmin } from '../config/supabase.js';
-import { authenticateToken, authRateLimit } from '../middleware/index.js';
-import type { LoginRequest, RegisterRequest, AuthResponse, User } from '../../shared/types.js';
+import { supabaseAdmin } from '../config/supabase';
+import { authenticateToken, authRateLimit } from '../middleware/index';
+import type { LoginRequest, RegisterRequest, AuthResponse, User } from '../../shared/types';
 
 const router = Router();
 

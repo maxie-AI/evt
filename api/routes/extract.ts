@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { supabaseAdmin } from '../config/supabase.js';
-import { authenticateToken, extractionRateLimit, requireSubscription, allowGuest } from '../middleware/index.js';
-import { validateVideoUrl, processVideo, processGuestVideo } from '../utils/videoProcessor.js';
-import type { ExtractRequest, ExtractResponse, Extraction } from '../../shared/types.js';
+import { supabaseAdmin } from '../config/supabase';
+import { authenticateToken, extractionRateLimit, requireSubscription, allowGuest } from '../middleware/index';
+import { validateVideoUrl, processVideo, processGuestVideo } from '../utils/videoProcessor';
+import type { ExtractRequest, ExtractResponse, Extraction } from '../../shared/types';
 
 const router = Router();
 

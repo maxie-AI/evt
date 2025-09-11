@@ -1,7 +1,7 @@
-import { VideoPlatform, VideoInfo, TranscriptSegment, PLATFORM_PATTERNS } from '../../shared/types.js';
-import { audioExtractor } from './audioExtractor.js';
-import { transcriptionService } from './transcriptionService.js';
-import { supabaseAdmin } from '../config/supabase.js';
+import { VideoPlatform, VideoInfo, TranscriptSegment, PLATFORM_PATTERNS } from '../../shared/types';
+import { audioExtractor } from './audioExtractor';
+import { transcriptionService } from './transcriptionService';
+import { supabaseAdmin } from '../config/supabase';
 const supabase = supabaseAdmin;
 
 export interface ProcessingResult {

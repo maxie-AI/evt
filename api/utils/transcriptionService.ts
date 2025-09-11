@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { createReadStream } from 'fs';
-import { TranscriptSegment } from '../../shared/types.js';
+import { TranscriptSegment } from '../../shared/types';
 
 export interface TranscriptionResult {
   text: string;
