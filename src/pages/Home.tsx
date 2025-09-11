@@ -1,13 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Upload, Clock, FileText, Zap, Shield, Users, UserCheck } from 'lucide-react';
+import { Play, Upload, Clock, FileText, Zap, Shield, Users, UserCheck, Download, ArrowRight, CheckCircle } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { toast } from 'sonner';
+import { api } from '../lib/supabase';
 
 const Home: React.FC = () => {
+  const { 
+    user, 
+    extractVideo, 
+    extractVideoAsGuest, 
+    isExtracting,
+    extractionError,
+    clearExtractionError,
+    guestInfo,
+    setGuestInfo,
+    progressStatus,
+    progressStage,
+    estimatedTimeRemaining,
+    processingStartTime
+  } = useStore();
   const [url, setUrl] = useState('');
-  const [useGuestMode, setUseGuestMode] = useState(false);
-  const { user, extractVideo, extractVideoAsGuest, isLoading, guestInfo, setGuestInfo } = useStore();
+  const [useGuestMode, setUseGuestMode] = useState(!user);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [useExample, setUseExample] = useState(false);
+  const exampleUrl = 'https://www.youtube.com/watch?v=c0m6yaGlZh4';
   const navigate = useNavigate();
 
   // Initialize guest mode if user is not authenticated
@@ -50,42 +67,44 @@ const Home: React.FC = () => {
     return patterns.some(pattern => pattern.test(url));
   };
 
+  // Timer effect for processing
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isExtracting && processingStartTime) {
+      interval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - processingStartTime.getTime()) / 1000);
+        setElapsedTime(elapsed);
+      }, 1000);
+    } else {
+      setElapsedTime(0);
+    }
+    return () => clearInterval(interval);
+  }, [isExtracting, processingStartTime]);
+
+  // Handle example checkbox
+  const handleExampleChange = (checked: boolean) => {
+    setUseExample(checked);
+    if (checked) {
+      setUrl(exampleUrl);
+    } else {
+      setUrl('');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!url.trim()) {
-      toast.error('Please enter a video URL');
-      return;
-    }
-
-    if (!validateUrl(url)) {
-      toast.error('Please enter a valid YouTube, Bilibili, or Red Book URL');
-      return;
-    }
+    if (!url.trim()) return;
 
     try {
-      if (useGuestMode || !user) {
-        // Guest mode extraction
+      if (useGuestMode) {
         const result = await extractVideoAsGuest(url);
-        toast.success('Video processed successfully! (Guest Mode)');
         navigate(`/transcript/${result.id}`);
       } else {
-        // Authenticated user extraction
         const result = await extractVideo(url);
-        toast.success('Video processed successfully!');
         navigate(`/transcript/${result.id}`);
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to process video';
-      
-      // Handle specific guest mode errors
-      if (errorMessage.includes('Daily limit reached')) {
-        toast.error('Daily limit reached! Guest users can extract 1 video per day. Create an account for higher limits.');
-      } else if (errorMessage.includes('duration exceeds')) {
-        toast.error('Video too long! Guest users can only process videos up to 1 minute. Create an account for longer videos.');
-      } else {
-        toast.error(errorMessage);
-      }
+      console.error('Extraction failed:', error);
     }
   };
 
@@ -143,7 +162,8 @@ const Home: React.FC = () => {
                   </div>
                   <div className="text-sm text-yellow-700 space-y-1">
                     <p>• 100 video extractions per day</p>
-                    <p>• Only first minute of video is transcribed</p>
+                    <p>• Videos up to 10 minutes (600 seconds)</p>
+                    <p>• Full video transcription for supported length</p>
                     {guestInfo && (
                       <p className="font-medium">
                         Remaining extractions today: {guestInfo.remainingExtractions}
@@ -167,21 +187,49 @@ const Home: React.FC = () => {
                     <input
                       type="url"
                       value={url}
-                      onChange={(e) => setUrl(e.target.value)}
+                      onChange={(e) => {
+                        setUrl(e.target.value);
+                        if (e.target.value !== exampleUrl) {
+                          setUseExample(false);
+                        }
+                      }}
                       placeholder="Paste your video URL here..."
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-lg"
-                      disabled={isLoading}
+                      disabled={isExtracting}
                     />
+                    {/* Example URL Checkbox */}
+                    <div className="mt-3 flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="useExample"
+                        checked={useExample}
+                        onChange={(e) => handleExampleChange(e.target.checked)}
+                        className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
+                        disabled={isExtracting}
+                      />
+                      <label htmlFor="useExample" className="text-sm text-gray-600 cursor-pointer flex items-center gap-1">
+                        <span>Try example video</span>
+                        <span className="text-xs text-purple-600 font-medium">(YouTube demo)</span>
+                      </label>
+                    </div>
                   </div>
                   <button
                     type="submit"
-                    disabled={isLoading || !url.trim() || (guestInfo && guestInfo.remainingExtractions <= 0)}
+                    disabled={isExtracting || !url.trim() || (guestInfo && guestInfo.remainingExtractions <= 0)}
                     className="px-8 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center"
                   >
-                    {isLoading ? (
+                    {isExtracting ? (
                       <>
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                        Processing...
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="font-medium">{progressStatus || 'Processing...'}</span>
+                          <div className="flex items-center gap-2 text-sm opacity-90">
+                            <span>{Math.floor(elapsedTime / 60)}:{(elapsedTime % 60).toString().padStart(2, '0')}</span>
+                            {estimatedTimeRemaining && estimatedTimeRemaining > 0 && (
+                              <span>• ~{estimatedTimeRemaining}s remaining</span>
+                            )}
+                          </div>
+                        </div>
                       </>
                     ) : (
                       <>

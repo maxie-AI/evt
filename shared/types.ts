@@ -137,6 +137,7 @@ export interface ExtractResponse {
     remaining_extractions: number;
     reset_time: string;
   };
+  session_id?: string;
 }
 
 export interface ExportRequest {

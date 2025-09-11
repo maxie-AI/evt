@@ -19,6 +19,10 @@ interface ExtractionState {
     remainingExtractions: number;
     resetTime: string | null;
   } | null;
+  progressStatus: string;
+  progressStage: 'initializing' | 'downloading' | 'extracting' | 'transcribing' | 'finalizing' | 'completed' | null;
+  estimatedTimeRemaining: number | null;
+  processingStartTime: Date | null;
 }
 
 interface ExportState {
@@ -44,6 +48,8 @@ interface AppState extends AuthState, ExtractionState, ExportState {
   deleteExtraction: (id: string) => Promise<void>;
   clearExtractionError: () => void;
   setGuestInfo: (info: { remainingExtractions: number; resetTime: string | null } | null) => void;
+  setProgressStatus: (status: string, stage?: 'initializing' | 'downloading' | 'extracting' | 'transcribing' | 'finalizing' | 'completed', estimatedTime?: number) => void;
+  clearProgress: () => void;
 
   // Export actions
   exportTranscript: (extractionId: string, format: string) => Promise<void>;
@@ -66,6 +72,10 @@ export const useStore = create<AppState>()(persist(
     isExtracting: false,
     extractionError: null,
     guestInfo: null,
+    progressStatus: '',
+    progressStage: null,
+    estimatedTimeRemaining: null,
+    processingStartTime: null,
     exportJobs: [],
     exports: [],
     isExporting: false,
@@ -167,22 +177,66 @@ export const useStore = create<AppState>()(persist(
 
     // Extraction actions
     extractVideo: async (videoUrl: string, language = 'auto'): Promise<Extraction> => {
+      const { setProgressStatus, clearProgress } = get();
       set({ isExtracting: true, extractionError: null });
+      
       try {
+        // Generate session ID for progress tracking
+        const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Initialize progress
+        setProgressStatus('Connecting...', 'initializing', 30);
+        
+        // Set up SSE connection for progress updates
+        const eventSource = new EventSource(`/api/progress/stream/${sessionId}`);
+        
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'progress') {
+              setProgressStatus(data.status, data.stage, data.estimatedTime);
+            } else if (data.type === 'complete') {
+              eventSource.close();
+            }
+          } catch (e) {
+            console.error('Error parsing SSE data:', e);
+          }
+        };
+        
+        eventSource.onerror = (error) => {
+          console.error('SSE connection error:', error);
+          eventSource.close();
+        };
+        
         const response = await api.call('/api/extract/video', {
           method: 'POST',
-          body: JSON.stringify({ video_url: videoUrl, language })
+          body: JSON.stringify({ 
+            video_url: videoUrl, 
+            language,
+            session_id: sessionId 
+          })
         });
         
         const { extractions } = get();
+        
+        // Complete progress
+        setProgressStatus('Extraction completed!', 'completed', 0);
+        
         set({ 
           extractions: [response.extraction, ...extractions],
           currentExtraction: response.extraction,
           isExtracting: false 
         });
         
+        // Clear progress after a short delay
+        setTimeout(() => {
+          clearProgress();
+          eventSource.close();
+        }, 2000);
+        
         return response.extraction;
       } catch (error) {
+        clearProgress();
         set({ 
           extractionError: error instanceof Error ? error.message : 'Extraction failed', 
           isExtracting: false 
@@ -230,11 +284,44 @@ export const useStore = create<AppState>()(persist(
     },
 
     extractVideoAsGuest: async (videoUrl: string, language = 'auto'): Promise<Extraction> => {
+      const { setProgressStatus, clearProgress } = get();
       set({ isExtracting: true, extractionError: null });
+      
       try {
+        // Generate session ID for progress tracking
+        const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Initialize progress
+        setProgressStatus('Connecting...', 'initializing', 30);
+        
+        // Set up SSE connection for progress updates
+        const eventSource = new EventSource(`/api/progress/stream/${sessionId}`);
+        
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'progress') {
+              setProgressStatus(data.status, data.stage, data.estimatedTime);
+            } else if (data.type === 'complete') {
+              eventSource.close();
+            }
+          } catch (e) {
+            console.error('Error parsing SSE data:', e);
+          }
+        };
+        
+        eventSource.onerror = (error) => {
+          console.error('SSE connection error:', error);
+          eventSource.close();
+        };
+        
         const response = await api.call('/api/extract/guest', {
           method: 'POST',
-          body: JSON.stringify({ video_url: videoUrl, language })
+          body: JSON.stringify({ 
+            video_url: videoUrl, 
+            language,
+            session_id: sessionId 
+          })
         });
         
         // Update guest info if provided
@@ -247,13 +334,23 @@ export const useStore = create<AppState>()(persist(
           });
         }
         
+        // Complete progress
+        setProgressStatus('Extraction completed!', 'completed', 0);
+        
         set({ 
           currentExtraction: response.extraction,
           isExtracting: false 
         });
         
+        // Clear progress after a short delay
+        setTimeout(() => {
+          clearProgress();
+          eventSource.close();
+        }, 2000);
+        
         return response.extraction;
       } catch (error) {
+        clearProgress();
         set({ 
           extractionError: error instanceof Error ? error.message : 'Extraction failed', 
           isExtracting: false 
@@ -265,6 +362,24 @@ export const useStore = create<AppState>()(persist(
     clearExtractionError: () => set({ extractionError: null }),
 
     setGuestInfo: (info) => set({ guestInfo: info }),
+
+    setProgressStatus: (status, stage, estimatedTime) => {
+      set((state) => ({
+        progressStatus: status,
+        progressStage: stage || state.progressStage,
+        estimatedTimeRemaining: estimatedTime || state.estimatedTimeRemaining,
+        processingStartTime: state.processingStartTime || new Date(),
+      }));
+    },
+
+    clearProgress: () => {
+      set((state) => ({
+        progressStatus: '',
+        progressStage: null,
+        estimatedTimeRemaining: null,
+        processingStartTime: null,
+      }));
+    },
 
     // Export actions
     exportTranscript: async (extractionId: string, format: string) => {

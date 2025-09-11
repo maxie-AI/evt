@@ -1,7 +1,11 @@
-node_modules
-build
-dist
-.git
-.trae
-.log
-.figma
+# Ignore non-function files in api directory
+api/app.ts
+api/server.ts
+api/config/**
+api/middleware/**
+api/routes/**
+api/utils/**
+
+# Only keep main entry points
+!api/index.ts
+!api/test.ts

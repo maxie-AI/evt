@@ -1,100 +1,168 @@
 import OpenAI from 'openai';
 import { createReadStream } from 'fs';
-import { TranscriptSegment } from '../../shared/types';
+import { existsSync } from 'fs';
+import { extname } from 'path';
+import { stat } from 'fs/promises';
+
+// Initialize OpenAI client
+let openaiClient: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+  if (!openaiClient) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    
+    if (!apiKey) {
+      throw new Error('OpenAI API key not found. Please set OPENAI_API_KEY environment variable.');
+    }
+    
+    if (apiKey.startsWith('sk-') && apiKey.length < 20) {
+      throw new Error('Invalid OpenAI API key format. Please check your OPENAI_API_KEY environment variable.');
+    }
+    
+    openaiClient = new OpenAI({
+      apiKey: apiKey,
+    });
+  }
+  
+  return openaiClient;
+}
 
 export interface TranscriptionResult {
   text: string;
-  segments: TranscriptSegment[];
+  language?: string;
+  duration?: number;
+  segments?: Array<{
+    start: number;
+    end: number;
+    text: string;
+  }>;
 }
 
 export class TranscriptionService {
-  private openai: OpenAI;
+  private client: OpenAI;
 
   constructor() {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY environment variable is required');
-    }
+    // Don't initialize client in constructor to avoid errors in serverless cold starts
+  }
 
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
-    });
+  private getClient(): OpenAI {
+    if (!this.client) {
+      this.client = getOpenAIClient();
+    }
+    return this.client;
   }
 
   /**
    * Transcribe audio file using OpenAI Whisper
    * @param audioPath Path to the audio file
-   * @param language Optional language code (e.g., 'en', 'zh', 'ja')
-   * @returns Transcription with text and segments
+   * @param options Transcription options
+   * @returns Transcription result
    */
-  async transcribeAudio(audioPath: string, language?: string): Promise<TranscriptionResult> {
+  async transcribeAudio(
+    audioPath: string,
+    options: {
+      language?: string;
+      prompt?: string;
+      temperature?: number;
+      maxDuration?: number;
+    } = {}
+  ): Promise<TranscriptionResult> {
+    // Check if running in Vercel serverless environment
+    if (process.env.VERCEL) {
+      // Return mock transcription for serverless environment
+      return this.getMockTranscription(options.maxDuration);
+    }
+
     try {
-      console.log('Starting transcription with Whisper...');
+      // Validate file exists
+      if (!existsSync(audioPath)) {
+        throw new Error(`Audio file not found: ${audioPath}`);
+      }
+
+      // Check file size (OpenAI has a 25MB limit)
+      const fileStats = await stat(audioPath);
+      const fileSizeMB = fileStats.size / (1024 * 1024);
+      
+      if (fileSizeMB > 25) {
+        throw new Error(`File size (${fileSizeMB.toFixed(2)}MB) exceeds OpenAI's 25MB limit`);
+      }
+
+      // Validate file format
+      const supportedFormats = ['.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm'];
+      const fileExtension = extname(audioPath).toLowerCase();
+      
+      if (!supportedFormats.includes(fileExtension)) {
+        throw new Error(`Unsupported audio format: ${fileExtension}. Supported formats: ${supportedFormats.join(', ')}`);
+      }
+
+      const client = this.getClient();
       
       // Create file stream
       const audioStream = createReadStream(audioPath);
-
-      // Configure transcription options
-      const transcriptionOptions: OpenAI.Audio.TranscriptionCreateParams = {
+      
+      // Transcribe using OpenAI Whisper
+      const transcription = await client.audio.transcriptions.create({
         file: audioStream,
         model: 'whisper-1',
-        response_format: 'verbose_json',
-        timestamp_granularities: ['segment']
-      };
-
-      // Add language if specified
-      if (language) {
-        transcriptionOptions.language = language;
-      }
-
-      // Call OpenAI Whisper API
-      const response = await this.openai.audio.transcriptions.create(transcriptionOptions) as any;
-
-      // Process the response
-      const segments: TranscriptSegment[] = [];
-      
-      if (response.segments && Array.isArray(response.segments)) {
-        for (const segment of response.segments) {
-          segments.push({
-            start: segment.start,
-            end: segment.end,
-            text: segment.text.trim()
-          });
-        }
-      }
-
-      // If no segments, create a single segment with the full text
-      if (segments.length === 0 && response.text) {
-        segments.push({
-          start: 0,
-          end: 0,
-          text: response.text.trim()
-        });
-      }
-
-      console.log(`Transcription completed: ${segments.length} segments`);
+        language: options.language,
+        prompt: options.prompt,
+        temperature: options.temperature || 0,
+        response_format: 'verbose_json'
+      });
 
       return {
-        text: response.text || '',
-        segments
+        text: transcription.text,
+        language: transcription.language,
+        duration: transcription.duration,
+        segments: transcription.segments?.map(segment => ({
+          start: segment.start,
+          end: segment.end,
+          text: segment.text
+        }))
       };
     } catch (error) {
       console.error('Transcription failed:', error);
       
       if (error instanceof Error) {
-        // Handle specific OpenAI API errors
+        // Handle specific OpenAI errors
         if (error.message.includes('API key')) {
-          throw new Error('Invalid OpenAI API key. Please check your configuration.');
+          throw new Error('OpenAI API key is invalid or missing. Please check your configuration.');
         }
+        
         if (error.message.includes('quota')) {
           throw new Error('OpenAI API quota exceeded. Please check your usage limits.');
         }
-        if (error.message.includes('file')) {
-          throw new Error('Audio file format not supported or file is corrupted.');
+        
+        if (error.message.includes('rate limit')) {
+          throw new Error('OpenAI API rate limit exceeded. Please try again later.');
         }
+        
+        throw error;
       }
-
-      throw new Error(`Transcription failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      throw new Error(`Transcription failed: ${error}`);
     }
+  }
+
+  /**
+   * Get mock transcription for serverless environment
+   */
+  private getMockTranscription(maxDuration?: number): TranscriptionResult {
+    const duration = maxDuration || 60;
+    const mockText = `This is a mock transcription for serverless environment. The video would normally be processed here, but audio extraction and transcription require local binaries that are not available in Vercel's serverless environment. To enable full functionality, please deploy to a server with yt-dlp and OpenAI Whisper support.`;
+    
+    return {
+      text: mockText,
+      language: 'en',
+      duration: duration,
+      segments: [
+        {
+          start: 0,
+          end: duration,
+          text: mockText
+        }
+      ]
+    };
   }
 
   /**
@@ -103,18 +171,13 @@ export class TranscriptionService {
    * @returns Detected language code
    */
   async detectLanguage(audioPath: string): Promise<string> {
-    try {
-      const audioStream = createReadStream(audioPath);
-      
-      const response = await this.openai.audio.transcriptions.create({
-        file: audioStream,
-        model: 'whisper-1',
-        response_format: 'json'
-      });
+    if (process.env.VERCEL) {
+      return 'en'; // Default to English in serverless
+    }
 
-      // Whisper automatically detects language, but we need to infer it from the response
-      // This is a simplified approach - in practice, you might want to use a separate language detection service
-      return 'auto';
+    try {
+      const result = await this.transcribeAudio(audioPath, { temperature: 0 });
+      return result.language || 'en';
     } catch (error) {
       console.error('Language detection failed:', error);
       return 'en'; // Default to English
@@ -122,13 +185,14 @@ export class TranscriptionService {
   }
 
   /**
-   * Check if OpenAI API is available and configured
+   * Check if OpenAI API is available
    * @returns Promise<boolean>
    */
-  async isAvailable(): Promise<boolean> {
+  async isApiAvailable(): Promise<boolean> {
     try {
-      // Test API connection with a minimal request
-      await this.openai.models.list();
+      const client = this.getClient();
+      // Try to list models to test API connectivity
+      await client.models.list();
       return true;
     } catch (error) {
       console.error('OpenAI API not available:', error);
@@ -137,28 +201,27 @@ export class TranscriptionService {
   }
 
   /**
-   * Get supported audio formats
-   * @returns Array of supported file extensions
-   */
-  getSupportedFormats(): string[] {
-    return ['mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'wav', 'webm'];
-  }
-
-  /**
-   * Validate audio file size (OpenAI has a 25MB limit)
+   * Check if audio format is supported
    * @param filePath Path to the audio file
    * @returns boolean
    */
-  async validateFileSize(filePath: string): Promise<boolean> {
+  isFormatSupported(filePath: string): boolean {
+    const supportedFormats = ['.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm'];
+    const fileExtension = extname(filePath).toLowerCase();
+    return supportedFormats.includes(fileExtension);
+  }
+
+  /**
+   * Check if file size is within limits
+   * @param filePath Path to the audio file
+   * @returns Promise<boolean>
+   */
+  async isFileSizeValid(filePath: string): Promise<boolean> {
     try {
-      const fs = await import('fs');
-      const stats = await fs.promises.stat(filePath);
-      const fileSizeInMB = stats.size / (1024 * 1024);
-      
-      // OpenAI Whisper has a 25MB file size limit
-      return fileSizeInMB <= 25;
+      const fileStats = await stat(filePath);
+      const fileSizeMB = fileStats.size / (1024 * 1024);
+      return fileSizeMB <= 25; // OpenAI's limit
     } catch (error) {
-      console.error('Failed to validate file size:', error);
       return false;
     }
   }
@@ -166,4 +229,3 @@ export class TranscriptionService {
 
 // Export singleton instance
 export const transcriptionService = new TranscriptionService();
-export default transcriptionService;

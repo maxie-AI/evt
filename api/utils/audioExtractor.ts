@@ -8,7 +8,12 @@ import { existsSync, unlinkSync } from 'fs';
 import { VideoPlatform } from '../../shared/types';
 
 function getYtDlpPath(): string {
-  // Known Windows installation path
+  // For Vercel serverless environment, use system PATH
+  if (process.env.VERCEL) {
+    return 'yt-dlp';
+  }
+  
+  // Known Windows installation path for local development
   const knownPath = 'C:\\Users\\tao\\AppData\\Roaming\\Python\\Python313\\Scripts\\yt-dlp.exe';
   
   // Fallback paths
@@ -38,14 +43,18 @@ export class AudioExtractor {
   private tempDir: string;
 
   constructor() {
-    this.initializeYtDlp();
     this.tempDir = tmpdir();
   }
 
   private async initializeYtDlp() {
     if (!this.ytDlp) {
-      const YTDlpWrap = (await import('yt-dlp-wrap')).default;
-      this.ytDlp = new YTDlpWrap(getYtDlpPath());
+      try {
+        const YTDlpWrap = (await import('yt-dlp-wrap')).default;
+        this.ytDlp = new YTDlpWrap(getYtDlpPath());
+      } catch (error) {
+        console.error('Failed to initialize yt-dlp:', error);
+        throw new Error('yt-dlp initialization failed. This feature may not work in serverless environments.');
+      }
     }
   }
 
@@ -53,6 +62,11 @@ export class AudioExtractor {
    * Extract audio from video URL
    */
   async extractAudio(url: string): Promise<AudioExtractionResult> {
+    // Check if running in Vercel serverless environment
+    if (process.env.VERCEL) {
+      throw new Error('Audio extraction is not supported in serverless environment. Please use a different deployment method or implement a cloud-based solution.');
+    }
+
     await this.initializeYtDlp();
     
     const audioId = randomUUID();
@@ -117,7 +131,19 @@ export class AudioExtractor {
    * @returns Video metadata
    */
   async getVideoInfo(url: string): Promise<{ title: string; duration: number; thumbnail?: string }> {
+    // Check if running in Vercel serverless environment
+    if (process.env.VERCEL) {
+      // Return mock data for serverless environment
+      return {
+        title: 'Video (Serverless Mode)',
+        duration: 300, // 5 minutes default
+        thumbnail: 'https://via.placeholder.com/320x180?text=Video'
+      };
+    }
+
     try {
+      await this.initializeYtDlp();
+      
       const options = [
         '--dump-json',
         '--no-download',
@@ -143,7 +169,13 @@ export class AudioExtractor {
    * @returns Promise<boolean>
    */
   async isAvailable(): Promise<boolean> {
+    // Always return false in Vercel serverless environment
+    if (process.env.VERCEL) {
+      return false;
+    }
+
     try {
+      await this.initializeYtDlp();
       await this.ytDlp.execPromise(['--version']);
       return true;
     } catch (error) {

@@ -5,6 +5,7 @@ import { corsOptions, generalRateLimit, securityMiddleware, loggingMiddleware, e
 import authRoutes from './routes/auth';
 import extractRoutes from './routes/extract';
 import exportRoutes from './routes/export';
+import progressRoutes from './routes/progress';
 
 // Load environment variables
 dotenv.config();
@@ -31,6 +32,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/extract', extractRoutes);
 app.use('/api/export', exportRoutes);
+app.use('/api/progress', progressRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

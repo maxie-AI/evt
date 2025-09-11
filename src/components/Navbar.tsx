@@ -35,10 +35,18 @@ const Navbar: React.FC = () => {
           {/* Logo */}
           <Link 
             to="/" 
-            className="flex items-center space-x-2 text-xl font-bold text-blue-600 hover:text-blue-700 transition-colors"
+            className="flex items-center space-x-3 text-xl font-bold hover:opacity-90 transition-opacity"
           >
-            <Video className="h-6 w-6" />
-            <span>VideoScript</span>
+            <div className="relative">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 via-purple-600 to-cyan-500 rounded-lg flex items-center justify-center shadow-lg">
+                <Video className="h-5 w-5 text-white" />
+              </div>
+              <div className="absolute -top-1 -right-1 w-3 h-3 bg-gradient-to-r from-orange-400 to-red-500 rounded-full animate-pulse"></div>
+            </div>
+            <div className="flex flex-col">
+              <span className="bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent font-black tracking-tight">VTX</span>
+              <span className="text-xs text-gray-500 font-medium -mt-1">Video Transcript eXtractor</span>
+            </div>
           </Link>
 
           {/* Desktop Navigation */}

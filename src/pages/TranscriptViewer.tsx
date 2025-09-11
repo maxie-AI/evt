@@ -90,15 +90,51 @@ const TranscriptViewer: React.FC = () => {
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const highlightSearchTerm = (text: string, term: string): string => {
-    if (!term) return text;
-    const regex = new RegExp(`(${term})`, 'gi');
-    return text.replace(regex, '<mark class="bg-yellow-200">$1</mark>');
+  const highlightSearchTerm = (text: string, term: string) => {
+    if (!term.trim()) return text;
+    
+    const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    return text.replace(regex, '<mark class="bg-yellow-200 px-1 rounded">$1</mark>');
+  };
+
+  const formatTextIntoParagraphs = (text: string) => {
+    if (!text) return '';
+    
+    // Split text into sentences and group them into paragraphs
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    const paragraphs = [];
+    let currentParagraph = [];
+    
+    for (let i = 0; i < sentences.length; i++) {
+      currentParagraph.push(sentences[i]);
+      
+      // Create a new paragraph every 3-4 sentences or at natural breaks
+      if (currentParagraph.length >= 3 && (sentences[i].match(/[.!?]$/) || i === sentences.length - 1)) {
+        paragraphs.push(currentParagraph.join(' ').trim());
+        currentParagraph = [];
+      }
+    }
+    
+    // Add any remaining sentences as the last paragraph
+    if (currentParagraph.length > 0) {
+      paragraphs.push(currentParagraph.join(' ').trim());
+    }
+    
+    return paragraphs.filter(p => p.length > 0).join('\n\n');
   };
 
   const getFilteredContent = (): string => {
-    if (!searchTerm) return editedContent;
-    return editedContent;
+    const content = isEditing ? editedContent : (extraction?.transcript_text || '');
+    const formattedContent = formatTextIntoParagraphs(content);
+    
+    if (!searchTerm.trim()) return formattedContent;
+    
+    const paragraphs = formattedContent.split('\n\n');
+    const filteredParagraphs = paragraphs.filter(paragraph => 
+      paragraph.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    
+    return filteredParagraphs.join('\n\n');
   };
 
   if (!extraction) {
@@ -228,9 +264,10 @@ const TranscriptViewer: React.FC = () => {
                 ) : (
                   <div className="prose max-w-none">
                     <div
-                      className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-gray-800"
+                      className="text-base leading-relaxed text-gray-800"
+                      style={{ lineHeight: '1.8' }}
                       dangerouslySetInnerHTML={{
-                        __html: highlightSearchTerm(getFilteredContent(), searchTerm)
+                        __html: `<p class="mb-4">${highlightSearchTerm(getFilteredContent(), searchTerm).replace(/\n\n/g, '</p><p class="mb-4">')}</p>`
                       }}
                     />
                   </div>

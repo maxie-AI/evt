@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
 import { authenticateToken, extractionRateLimit, requireSubscription, allowGuest } from '../middleware/index';
 import { validateVideoUrl, processVideo, processGuestVideo } from '../utils/videoProcessor';
+import { sendProgressUpdate, completeProgress } from './progress';
 import type { ExtractRequest, ExtractResponse, Extraction } from '../../shared/types';
 
 const router = Router();
@@ -12,9 +13,14 @@ router.use(extractionRateLimit);
 // Guest extraction route - supports both authenticated and guest users
 router.post('/guest', allowGuest, async (req: Request, res: Response) => {
   try {
-    const { video_url, language = 'auto' }: ExtractRequest = req.body;
+    const { video_url, language = 'auto', session_id }: ExtractRequest & { session_id?: string } = req.body;
+    // Convert 'auto' to undefined for OpenAI API compatibility
+    const processLanguage = language === 'auto' ? undefined : language;
     const guestInfo = (req as any).guestInfo;
     const isGuest = !req.user && guestInfo?.isGuest;
+    
+    // Generate session ID for progress tracking if not provided
+    const sessionId = session_id || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     if (!video_url) {
       return res.status(400).json({ error: 'Video URL is required' });
@@ -51,7 +57,12 @@ router.post('/guest', allowGuest, async (req: Request, res: Response) => {
 
       // Process video for guest with duration limit
       try {
-        const result = await processGuestVideo(video_url, clientIP);
+        // Create progress callback for SSE updates
+        const progressCallback = (status: string, stage: string, estimatedTime?: number) => {
+          sendProgressUpdate(sessionId, status, stage, estimatedTime);
+        };
+        
+        const result = await processGuestVideo(video_url, progressCallback);
         
         // Note: Guest users can now process videos of any length, but only first minute is transcribed
 
@@ -64,28 +75,32 @@ router.post('/guest', allowGuest, async (req: Request, res: Response) => {
           // Continue anyway, don't fail the request
         }
 
+        // Complete progress stream
+        completeProgress(sessionId);
+        
         const response: ExtractResponse = {
           extraction: {
-            id: result.extractionId || '',
+            id: `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             user_id: null,
             video_url,
-            platform: result.videoInfo.platform,
-            video_title: result.videoInfo.title,
-            video_duration: result.videoInfo.duration,
-            transcript_text: result.transcript,
-            transcript_segments: result.segments,
+            platform: result.metadata.platform,
+            video_title: result.metadata.title,
+            video_duration: result.metadata.duration,
+            transcript_text: result.transcript.text,
+            transcript_segments: result.transcript.segments,
             status: 'completed',
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           } as Extraction,
           transcript: {
-            text: result.transcript,
-            segments: result.segments
+            text: result.transcript.text,
+            segments: result.transcript.segments
           },
           guest_info: {
             remaining_extractions: usage.remaining_extractions - 1,
             reset_time: usage.reset_time
-          }
+          },
+          session_id: sessionId
         };
 
         res.json(response);
@@ -118,25 +133,25 @@ router.post('/guest', allowGuest, async (req: Request, res: Response) => {
 
       // Process video using the existing authenticated flow
       try {
-        const result = await processVideo(video_url, req.user!.id);
+        const result = await processVideo(video_url, processLanguage);
         
         const response: ExtractResponse = {
           extraction: {
-            id: '', // Will be set by database
+            id: `auth_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, // Will be set by database
             user_id: req.user!.id,
             video_url,
-            platform: result.videoInfo.platform,
-            video_title: result.videoInfo.title,
-            video_duration: result.videoInfo.duration,
-            transcript_text: result.transcript,
-            transcript_segments: result.segments,
+            platform: result.metadata.platform,
+            video_title: result.metadata.title,
+            video_duration: result.metadata.duration,
+            transcript_text: result.transcript.text,
+            transcript_segments: result.transcript.segments,
             status: 'completed',
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           } as Extraction,
           transcript: {
-            text: result.transcript,
-            segments: result.segments
+            text: result.transcript.text,
+            segments: result.transcript.segments
           }
         };
 
@@ -159,7 +174,9 @@ router.post('/video', authenticateToken, async (req: Request, res: Response) => 
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    const { video_url, language = 'auto' }: ExtractRequest = req.body;
+    const { video_url, language = 'auto', session_id }: ExtractRequest & { session_id?: string } = req.body;
+    // Convert 'auto' to undefined for OpenAI API compatibility
+    const processLanguage = language === 'auto' ? undefined : language;
 
     if (!video_url) {
       return res.status(400).json({ error: 'Video URL is required' });
@@ -195,25 +212,30 @@ router.post('/video', authenticateToken, async (req: Request, res: Response) => 
 
     // Process video using the integrated video processor
     try {
-      const result = await processVideo(video_url, req.user.id);
+      // Create progress callback for SSE updates if session_id is provided
+      const progressCallback = session_id ? (status: string, stage: string, estimatedTime?: number) => {
+        sendProgressUpdate(session_id, status, stage, estimatedTime);
+      } : undefined;
+      
+      const result = await processVideo(video_url, processLanguage, progressCallback);
       
       const response: ExtractResponse = {
         extraction: {
           id: '', // Will be set by database
           user_id: req.user.id,
           video_url,
-          platform: result.videoInfo.platform,
-          video_title: result.videoInfo.title,
-          video_duration: result.videoInfo.duration,
-          transcript_text: result.transcript,
-          transcript_segments: result.segments,
+          platform: result.metadata.platform,
+          video_title: result.metadata.title,
+          video_duration: result.metadata.duration,
+          transcript_text: result.transcript.text,
+          transcript_segments: result.transcript.segments,
           status: 'completed',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         } as Extraction,
         transcript: {
-          text: result.transcript,
-          segments: result.segments
+          text: result.transcript.text,
+          segments: result.transcript.segments
         }
       };
 
