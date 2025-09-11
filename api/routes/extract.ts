@@ -42,7 +42,7 @@ router.post('/guest', allowGuest, async (req: Request, res: Response) => {
       const usage = usageCheck[0];
       if (!usage.can_extract) {
         return res.status(429).json({ 
-          error: 'Daily limit reached. Guest users can extract 1 video per day.',
+          error: 'Daily limit reached. Guest users can extract 100 videos per day.',
           remaining_extractions: usage.remaining_extractions,
           reset_time: usage.reset_time,
           upgrade_message: 'Create an account for higher limits'
@@ -53,15 +53,7 @@ router.post('/guest', allowGuest, async (req: Request, res: Response) => {
       try {
         const result = await processGuestVideo(video_url, clientIP);
         
-        // Check video duration (1 minute = 60 seconds limit for guests)
-        if (result.videoInfo.duration > 60) {
-          return res.status(400).json({ 
-            error: 'Video duration exceeds 1-minute limit for guest users',
-            duration: result.videoInfo.duration,
-            limit: 60,
-            upgrade_message: 'Create an account to process longer videos'
-          });
-        }
+        // Note: Guest users can now process videos of any length, but only first minute is transcribed
 
         // Increment guest usage
         const { error: incrementError } = await supabaseAdmin

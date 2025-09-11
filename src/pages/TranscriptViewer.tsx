@@ -8,33 +8,45 @@ import type { Extraction } from '../../shared/types';
 const TranscriptViewer: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user, extractions, exportTranscript, isLoading } = useStore();
+  const { user, extractions, currentExtraction, exportTranscript, isLoading, getExtraction } = useStore();
   const [extraction, setExtraction] = useState<Extraction | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFormat, setSelectedFormat] = useState<'txt' | 'srt' | 'vtt' | 'json'>('txt');
+  const [isGuest, setIsGuest] = useState(false);
 
   useEffect(() => {
-    if (!user) {
-      navigate('/login');
-      return;
-    }
-
     if (id) {
-      const found = extractions.find(e => e.id === id);
-      if (found) {
-        setExtraction(found);
-        setEditedContent(found.transcript_text || '');
+      // First check if this is the current extraction (for guest users)
+      if (currentExtraction && currentExtraction.id === id) {
+        setExtraction(currentExtraction);
+        setEditedContent(currentExtraction.transcript_text || '');
+        setIsGuest(!user); // Mark as guest if no user
+        return;
+      }
+
+      // For authenticated users, check extractions array
+      if (user) {
+        const found = extractions.find(e => e.id === id);
+        if (found) {
+          setExtraction(found);
+          setEditedContent(found.transcript_text || '');
+          setIsGuest(false);
+        } else {
+          // Try to fetch the extraction if not found locally
+          getExtraction(id);
+        }
       } else {
-        toast.error('Transcript not found');
-        navigate('/history');
+        // Guest user trying to access an extraction that's not current
+        toast.error('Transcript not found or expired');
+        navigate('/');
       }
     }
-  }, [id, extractions, user, navigate]);
+  }, [id, extractions, currentExtraction, user, navigate, getExtraction]);
 
   const handleSave = () => {
-    if (extraction) {
+    if (extraction && !isGuest) {
       // In a real app, you'd save to the backend
       setExtraction({ ...extraction, transcript_text: editedContent });
       setIsEditing(false);
@@ -53,6 +65,11 @@ const TranscriptViewer: React.FC = () => {
 
   const handleExport = async () => {
     if (!extraction) return;
+
+    if (isGuest) {
+      toast.error('Please sign up or log in to export transcripts');
+      return;
+    }
 
     try {
       await exportTranscript(extraction.id, selectedFormat);
@@ -102,9 +119,16 @@ const TranscriptViewer: React.FC = () => {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div className="flex-1">
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                {extraction.video_title || 'Video Transcript'}
-              </h1>
+              <div className="flex items-center gap-3 mb-2">
+                <h1 className="text-2xl font-bold text-gray-900">
+                  {extraction.video_title || 'Video Transcript'}
+                </h1>
+                {isGuest && (
+                  <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                    Guest View
+                  </span>
+                )}
+              </div>
               <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
                 <div className="flex items-center gap-1">
                   <Clock className="h-4 w-4" />
@@ -139,34 +163,36 @@ const TranscriptViewer: React.FC = () => {
                 Copy
               </button>
               
-              {isEditing ? (
-                <>
+              {!isGuest && (
+                isEditing ? (
+                  <>
+                    <button
+                      onClick={handleSave}
+                      className="flex items-center gap-2 px-4 py-2 text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                    >
+                      <Save className="h-4 w-4" />
+                      Save
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsEditing(false);
+                        setEditedContent(extraction.transcript_text || '');
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                    >
+                      <X className="h-4 w-4" />
+                      Cancel
+                    </button>
+                  </>
+                ) : (
                   <button
-                    onClick={handleSave}
-                    className="flex items-center gap-2 px-4 py-2 text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                    onClick={() => setIsEditing(true)}
+                    className="flex items-center gap-2 px-4 py-2 text-purple-700 bg-purple-100 hover:bg-purple-200 rounded-lg transition-colors"
                   >
-                    <Save className="h-4 w-4" />
-                    Save
+                    <Edit3 className="h-4 w-4" />
+                    Edit
                   </button>
-                  <button
-                    onClick={() => {
-                      setIsEditing(false);
-                      setEditedContent(extraction.transcript_text || '');
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-                  >
-                    <X className="h-4 w-4" />
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={() => setIsEditing(true)}
-                  className="flex items-center gap-2 px-4 py-2 text-purple-700 bg-purple-100 hover:bg-purple-200 rounded-lg transition-colors"
-                >
-                  <Edit3 className="h-4 w-4" />
-                  Edit
-                </button>
+                )
               )}
             </div>
           </div>
@@ -219,64 +245,80 @@ const TranscriptViewer: React.FC = () => {
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Export Options</h3>
               
-              <div className="space-y-3 mb-4">
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="format"
-                    value="txt"
-                    checked={selectedFormat === 'txt'}
-                    onChange={(e) => setSelectedFormat(e.target.value as any)}
-                    className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">Plain Text (.txt)</span>
-                </label>
-                
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="format"
-                    value="srt"
-                    checked={selectedFormat === 'srt'}
-                    onChange={(e) => setSelectedFormat(e.target.value as any)}
-                    className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">SubRip (.srt)</span>
-                </label>
-                
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="format"
-                    value="vtt"
-                    checked={selectedFormat === 'vtt'}
-                    onChange={(e) => setSelectedFormat(e.target.value as any)}
-                    className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">WebVTT (.vtt)</span>
-                </label>
-                
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="format"
-                    value="json"
-                    checked={selectedFormat === 'json'}
-                    onChange={(e) => setSelectedFormat(e.target.value as any)}
-                    className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">JSON (.json)</span>
-                </label>
-              </div>
-              
-              <button
-                onClick={handleExport}
-                disabled={isLoading}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <Download className="h-4 w-4" />
-                {isLoading ? 'Exporting...' : 'Export'}
-              </button>
+              {isGuest ? (
+                <div className="text-center py-4">
+                  <p className="text-sm text-gray-600 mb-3">
+                    Sign up or log in to export transcripts in various formats.
+                  </p>
+                  <button
+                    onClick={() => navigate('/login')}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  >
+                    Sign Up / Log In
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-3 mb-4">
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="format"
+                        value="txt"
+                        checked={selectedFormat === 'txt'}
+                        onChange={(e) => setSelectedFormat(e.target.value as any)}
+                        className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300"
+                      />
+                      <span className="ml-2 text-sm text-gray-700">Plain Text (.txt)</span>
+                    </label>
+                    
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="format"
+                        value="srt"
+                        checked={selectedFormat === 'srt'}
+                        onChange={(e) => setSelectedFormat(e.target.value as any)}
+                        className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300"
+                      />
+                      <span className="ml-2 text-sm text-gray-700">SubRip (.srt)</span>
+                    </label>
+                    
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="format"
+                        value="vtt"
+                        checked={selectedFormat === 'vtt'}
+                        onChange={(e) => setSelectedFormat(e.target.value as any)}
+                        className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300"
+                      />
+                      <span className="ml-2 text-sm text-gray-700">WebVTT (.vtt)</span>
+                    </label>
+                    
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="format"
+                        value="json"
+                        checked={selectedFormat === 'json'}
+                        onChange={(e) => setSelectedFormat(e.target.value as any)}
+                        className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300"
+                      />
+                      <span className="ml-2 text-sm text-gray-700">JSON (.json)</span>
+                    </label>
+                  </div>
+                  
+                  <button
+                    onClick={handleExport}
+                    disabled={isLoading}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Download className="h-4 w-4" />
+                    {isLoading ? 'Exporting...' : 'Export'}
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Video Info */}

@@ -73,7 +73,7 @@ RETURNS TABLE(
 ) AS $$
 DECLARE
   current_usage INTEGER := 0;
-  daily_limit INTEGER := 1;
+  daily_limit INTEGER := 100;
   usage_record RECORD;
 BEGIN
   -- Get or create usage record for today
@@ -102,7 +102,7 @@ CREATE OR REPLACE FUNCTION increment_guest_usage(p_ip_address INET)
 RETURNS BOOLEAN AS $$
 DECLARE
   current_usage INTEGER := 0;
-  daily_limit INTEGER := 1;
+  daily_limit INTEGER := 5;
 BEGIN
   -- Get current usage
   SELECT COALESCE(extraction_count, 0) INTO current_usage

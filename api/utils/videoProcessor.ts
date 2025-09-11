@@ -1,18 +1,8 @@
 import { VideoPlatform, VideoInfo, TranscriptSegment, PLATFORM_PATTERNS } from '../../shared/types.js';
-import { createReadStream, unlinkSync, existsSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
-import { randomUUID } from 'crypto';
-// import YTDlpWrap from 'yt-dlp-wrap';
-// import OpenAI from 'openai';
+import { audioExtractor } from './audioExtractor.js';
+import { transcriptionService } from './transcriptionService.js';
 import { supabaseAdmin } from '../config/supabase.js';
 const supabase = supabaseAdmin;
-
-// Initialize services (temporarily disabled for compatibility)
-// const ytDlp = new YTDlpWrap();
-// const openai = new OpenAI({
-//   apiKey: process.env.OPENAI_API_KEY
-// });
 
 export interface ProcessingResult {
   videoInfo: VideoInfo;
@@ -73,95 +63,131 @@ export const extractVideoInfo = async (url: string, platform: VideoPlatform): Pr
   const videoId = extractVideoId(url, platform);
   
   try {
-    // Mock implementation for testing
+    // Use real yt-dlp to get video information
+    const videoInfo = await audioExtractor.getVideoInfo(url);
+    
     return {
       url,
       platform,
-      title: 'Mock Video Title',
-      duration: 300, // 5 minutes
-      thumbnail: 'https://via.placeholder.com/480x360'
+      title: videoInfo.title,
+      duration: videoInfo.duration,
+      thumbnail: videoInfo.thumbnail || `https://via.placeholder.com/320x180?text=${platform.toUpperCase()}+Video`
     };
   } catch (error) {
     console.error('Error extracting video info:', error);
-    // Fallback to mock info
-    const mockInfo: VideoInfo = {
+    // Fallback to basic info with video ID
+    const fallbackInfo: VideoInfo = {
       url,
       platform,
-      title: `Sample Video Title (${platform})`,
-      duration: Math.floor(Math.random() * 3600) + 60,
+      title: `Video ${videoId || 'Unknown'}`,
+      duration: 0,
       thumbnail: `https://via.placeholder.com/320x180?text=${platform.toUpperCase()}+Video`
     };
     
-    return mockInfo;
+    return fallbackInfo;
   }
 };
 
 // Extract transcript using OpenAI Whisper
 export const extractTranscript = async (videoInfo: VideoInfo): Promise<{ text: string; segments: TranscriptSegment[] }> => {
-  const tempDir = tmpdir();
-  const audioPath = join(tempDir, `${randomUUID()}.wav`);
+  return extractTranscriptWithLimit(videoInfo);
+};
+
+// Extract transcript with time limit (for guest users)
+export const extractTranscriptWithLimit = async (videoInfo: VideoInfo, maxDurationSeconds?: number): Promise<{ text: string; segments: TranscriptSegment[] }> => {
+  let audioResult: any = null;
   
   try {
-    // Mock implementation for testing
-    const mockText = 'This is a mock transcript for testing purposes. The video processing functionality will be implemented with proper yt-dlp and OpenAI integration.';
-    const mockSegments: TranscriptSegment[] = [
-      {
-        start: 0.0,
-        end: 5.0,
-        text: 'This is a mock transcript for testing purposes.'
-      },
-      {
-        start: 5.0,
-        end: 10.0,
-        text: 'The video processing functionality will be implemented with proper yt-dlp and OpenAI integration.'
+    console.log(`Starting transcript extraction for: ${videoInfo.title}`);
+    
+    // Check if services are available
+    const isAudioExtractorAvailable = await audioExtractor.isAvailable();
+    const isTranscriptionAvailable = await transcriptionService.isAvailable();
+    
+    if (!isAudioExtractorAvailable) {
+      throw new Error('yt-dlp is not available. Please ensure it is installed.');
+    }
+    
+    if (!isTranscriptionAvailable) {
+      throw new Error('OpenAI API is not available. Please check your API key configuration.');
+    }
+
+    // Extract audio from video
+    console.log('Extracting audio from video...');
+    audioResult = await audioExtractor.extractAudio(videoInfo.url, maxDurationSeconds);
+    
+    // Validate file size before transcription
+    const isValidSize = await transcriptionService.validateFileSize(audioResult.audioPath);
+    if (!isValidSize) {
+      throw new Error('Audio file is too large for transcription (max 25MB)');
+    }
+
+    // Transcribe audio using Whisper
+    console.log('Transcribing audio with Whisper...');
+    const transcriptionResult = await transcriptionService.transcribeAudio(audioResult.audioPath);
+    
+    // Apply time limit to segments if specified (for guest users)
+    let finalSegments = transcriptionResult.segments;
+    if (maxDurationSeconds) {
+      finalSegments = transcriptionResult.segments.filter(segment => segment.start < maxDurationSeconds);
+      // Adjust the last segment if it extends beyond the limit
+      if (finalSegments.length > 0) {
+        const lastSegment = finalSegments[finalSegments.length - 1];
+        if (lastSegment.end > maxDurationSeconds) {
+          lastSegment.end = maxDurationSeconds;
+        }
       }
-    ];
+    }
+
+    const finalText = finalSegments.map(segment => segment.text).join(' ');
+    
+    console.log(`Transcript extraction completed: ${finalSegments.length} segments`);
 
     return {
-      text: mockText,
-      segments: mockSegments
+      text: finalText,
+      segments: finalSegments
     };
   } catch (error) {
     console.error('Error extracting transcript:', error);
     
-    // Clean up on error
-    if (existsSync(audioPath)) {
-      unlinkSync(audioPath);
-    }
-    
-    // Fallback to mock transcript
-    const mockSegments: TranscriptSegment[] = [];
-    const sampleTexts = [
-      "Welcome to this video tutorial.",
-      "Today we'll be learning about video transcript extraction.",
-      "This is a powerful tool for content creators.",
-      "Let's dive into the main topic.",
-      "First, we need to understand the basics.",
-      "The process involves several steps.",
-      "We start by analyzing the audio track.",
-      "Then we apply speech recognition algorithms.",
-      "The result is a time-stamped transcript.",
-      "This can be exported in various formats.",
-      "Thank you for watching this tutorial."
+    // Fallback to mock transcript for development/testing
+    console.log('Falling back to mock transcript due to error');
+    const mockSegments: TranscriptSegment[] = [
+      {
+        start: 0.0,
+        end: 10.0,
+        text: `[Transcription failed: ${error instanceof Error ? error.message : 'Unknown error'}] This is a fallback transcript for ${videoInfo.title}.`
+      },
+      {
+        start: 10.0,
+        end: 20.0,
+        text: 'Please check your yt-dlp installation and OpenAI API key configuration.'
+      }
     ];
 
-    let currentTime = 0;
-    for (let i = 0; i < sampleTexts.length; i++) {
-      const duration = Math.floor(Math.random() * 10) + 5; // 5-15 seconds per segment
-      mockSegments.push({
-        start: currentTime,
-        end: currentTime + duration,
-        text: sampleTexts[i]
-      });
-      currentTime += duration;
+    // Apply time limit if specified (for guest users)
+    let finalSegments = mockSegments;
+    if (maxDurationSeconds) {
+      finalSegments = mockSegments.filter(segment => segment.start < maxDurationSeconds);
+      if (finalSegments.length > 0) {
+        const lastSegment = finalSegments[finalSegments.length - 1];
+        if (lastSegment.end > maxDurationSeconds) {
+          lastSegment.end = maxDurationSeconds;
+        }
+      }
     }
 
-    const fullText = mockSegments.map(segment => segment.text).join(' ');
+    const fullText = finalSegments.map(segment => segment.text).join(' ');
 
     return {
       text: fullText,
-      segments: mockSegments
+      segments: finalSegments
     };
+  } finally {
+    // Always cleanup audio file
+    if (audioResult && audioResult.cleanup) {
+      audioResult.cleanup();
+    }
   }
 };
 
@@ -285,8 +311,8 @@ export async function processGuestVideo(videoUrl: string, clientIP: string): Pro
     // Extract video information
     const videoInfo = await extractVideoInfo(videoUrl, platform!);
     
-    // Extract transcript
-    const { text: transcript, segments } = await extractTranscript(videoInfo);
+    // Extract transcript with 60-second limit for guest users
+    const { text: transcript, segments } = await extractTranscriptWithLimit(videoInfo, 60);
 
     // Store guest extraction in database
     const { data: guestExtraction, error: insertError } = await supabaseAdmin
@@ -294,7 +320,7 @@ export async function processGuestVideo(videoUrl: string, clientIP: string): Pro
       .insert({
         ip_address: clientIP,
         video_url: videoUrl,
-        platform: videoInfo.platform,
+        video_platform: videoInfo.platform,
         video_title: videoInfo.title,
         video_duration: videoInfo.duration,
         transcript_text: transcript,

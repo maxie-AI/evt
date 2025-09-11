@@ -7,8 +7,9 @@ import type { LoginRequest, RegisterRequest, AuthResponse, User } from '../../sh
 
 const router = Router();
 
-// Apply rate limiting to auth routes
-router.use(authRateLimit);
+// Apply rate limiting to auth routes (but not to /me endpoint)
+router.use('/register', authRateLimit);
+router.use('/login', authRateLimit);
 
 // Register new user
 router.post('/register', async (req: Request, res: Response) => {

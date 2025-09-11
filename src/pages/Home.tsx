@@ -142,8 +142,8 @@ const Home: React.FC = () => {
                     <h3 className="font-semibold text-yellow-800">Guest Mode Limits</h3>
                   </div>
                   <div className="text-sm text-yellow-700 space-y-1">
-                    <p>• 1 video extraction per day</p>
-                    <p>• Maximum video duration: 1 minute</p>
+                    <p>• 100 video extractions per day</p>
+                    <p>• Only first minute of video is transcribed</p>
                     {guestInfo && (
                       <p className="font-medium">
                         Remaining extractions today: {guestInfo.remainingExtractions}
@@ -193,7 +193,7 @@ const Home: React.FC = () => {
                 </div>
                 {guestInfo && guestInfo.remainingExtractions <= 0 && (
                   <p className="text-red-600 text-sm mt-2 text-center">
-                    Daily limit reached. Try again tomorrow or create an account for unlimited access.
+                    Daily limit reached (100 videos). Resets at {new Date(guestInfo.resetTime).toLocaleTimeString()}.
                   </p>
                 )}
               </form>
