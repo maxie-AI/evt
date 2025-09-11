@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 // import YTDlpWrap from 'yt-dlp-wrap';
 // import OpenAI from 'openai';
 import { supabaseAdmin } from '../config/supabase.js';
+const supabase = supabaseAdmin;
 
 // Initialize services (temporarily disabled for compatibility)
 // const ytDlp = new YTDlpWrap();
@@ -259,3 +260,62 @@ const formatVTTTime = (seconds: number): string => {
   
   return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
 };
+
+// Process video for guest users with IP tracking
+export async function processGuestVideo(videoUrl: string, clientIP: string): Promise<{
+  videoInfo: VideoInfo;
+  transcript: string;
+  segments: TranscriptSegment[];
+  extractionId?: string;
+}> {
+  try {
+    // Validate video URL
+    const validation = validateVideoUrl(videoUrl);
+    if (!validation.isValid) {
+      throw new Error(validation.error || 'Invalid video URL');
+    }
+
+    const platform = detectPlatform(videoUrl);
+    const videoId = extractVideoId(videoUrl, platform!);
+
+    if (!videoId) {
+      throw new Error('Could not extract video ID from URL');
+    }
+
+    // Extract video information
+    const videoInfo = await extractVideoInfo(videoUrl, platform!);
+    
+    // Extract transcript
+    const { text: transcript, segments } = await extractTranscript(videoInfo);
+
+    // Store guest extraction in database
+    const { data: guestExtraction, error: insertError } = await supabaseAdmin
+      .from('guest_extractions')
+      .insert({
+        ip_address: clientIP,
+        video_url: videoUrl,
+        platform: videoInfo.platform,
+        video_title: videoInfo.title,
+        video_duration: videoInfo.duration,
+        transcript_text: transcript,
+        transcript_segments: segments
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('Error storing guest extraction:', insertError);
+      // Don't throw error, just log it - we can still return the result
+    }
+
+    return {
+      videoInfo,
+      transcript,
+      segments,
+      extractionId: guestExtraction?.id
+    };
+  } catch (error) {
+    console.error('Error processing guest video:', error);
+    throw error;
+  }
+}

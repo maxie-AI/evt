@@ -1,5 +1,33 @@
 // Shared TypeScript types for Video Transcript Extractor
 
+// Supabase Database type
+export interface Database {
+  public: {
+    Tables: {
+      users: {
+        Row: User;
+        Insert: Omit<User, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<User, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      extractions: {
+        Row: Extraction;
+        Insert: Omit<Extraction, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<Extraction, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      export_jobs: {
+        Row: ExportJob;
+        Insert: Omit<ExportJob, 'id' | 'created_at'>;
+        Update: Partial<Omit<ExportJob, 'id' | 'created_at'>>;
+      };
+      subscriptions: {
+        Row: Subscription;
+        Insert: Omit<Subscription, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<Subscription, 'id' | 'created_at' | 'updated_at'>>;
+      };
+    };
+  };
+}
+
 // User related types
 export interface User {
   id: string;
@@ -9,6 +37,10 @@ export interface User {
   usage_count: number;
   created_at: string;
   updated_at: string;
+  user_metadata?: {
+    full_name?: string;
+    [key: string]: any;
+  };
 }
 
 export interface UserProfile {
@@ -78,15 +110,39 @@ export interface Subscription {
   updated_at: string;
 }
 
-// API Request/Response types
+// API Request/Response Types
 export interface ExtractVideoRequest {
   video_url: string;
+  language?: string;
+}
+
+export interface ExtractRequest {
+  video_url: string;
+  language?: string;
 }
 
 export interface ExtractVideoResponse {
-  extraction_id: string;
-  status: string;
+  extraction: Extraction;
   message: string;
+}
+
+export interface ExtractResponse {
+  extraction: Extraction;
+  message?: string;
+  transcript?: {
+    text: string;
+    segments: any[];
+  };
+  guest_info?: {
+    remaining_extractions: number;
+    reset_time: string;
+  };
+}
+
+export interface ExportRequest {
+  extraction_id: string;
+  format: ExportFormat;
+  include_timestamps?: boolean;
 }
 
 export interface ExportTranscriptRequest {

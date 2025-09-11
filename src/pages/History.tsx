@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, Download, Trash2, Search, Filter, Calendar, Clock, ExternalLink } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { toast } from 'sonner';
-import type { Extraction } from '../shared/types';
+import type { Extraction } from '../../shared/types';
 
 const History: React.FC = () => {
   const navigate = useNavigate();

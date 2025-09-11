@@ -1,13 +1,164 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
-import { authenticateToken, extractionRateLimit, requireSubscription } from '../middleware/index.js';
-import { validateVideoUrl, processVideo } from '../utils/videoProcessor.js';
+import { authenticateToken, extractionRateLimit, requireSubscription, allowGuest } from '../middleware/index.js';
+import { validateVideoUrl, processVideo, processGuestVideo } from '../utils/videoProcessor.js';
 import type { ExtractRequest, ExtractResponse, Extraction } from '../../shared/types.js';
 
 const router = Router();
 
 // Apply rate limiting to extraction routes
 router.use(extractionRateLimit);
+
+// Guest extraction route - supports both authenticated and guest users
+router.post('/guest', allowGuest, async (req: Request, res: Response) => {
+  try {
+    const { video_url, language = 'auto' }: ExtractRequest = req.body;
+    const guestInfo = (req as any).guestInfo;
+    const isGuest = !req.user && guestInfo?.isGuest;
+
+    if (!video_url) {
+      return res.status(400).json({ error: 'Video URL is required' });
+    }
+
+    // Validate video URL
+    const validation = validateVideoUrl(video_url);
+    if (!validation.isValid) {
+      return res.status(400).json({ error: validation.error || 'Invalid video URL format' });
+    }
+
+    if (isGuest) {
+      // Guest user logic
+      const clientIP = guestInfo.ip;
+      
+      // Check guest usage limits
+      const { data: usageCheck, error: usageError } = await supabaseAdmin
+        .rpc('check_guest_usage', { p_ip_address: clientIP });
+      
+      if (usageError) {
+        console.error('Error checking guest usage:', usageError);
+        return res.status(500).json({ error: 'Failed to check usage limits' });
+      }
+      
+      const usage = usageCheck[0];
+      if (!usage.can_extract) {
+        return res.status(429).json({ 
+          error: 'Daily limit reached. Guest users can extract 1 video per day.',
+          remaining_extractions: usage.remaining_extractions,
+          reset_time: usage.reset_time,
+          upgrade_message: 'Create an account for higher limits'
+        });
+      }
+
+      // Process video for guest with duration limit
+      try {
+        const result = await processGuestVideo(video_url, clientIP);
+        
+        // Check video duration (1 minute = 60 seconds limit for guests)
+        if (result.videoInfo.duration > 60) {
+          return res.status(400).json({ 
+            error: 'Video duration exceeds 1-minute limit for guest users',
+            duration: result.videoInfo.duration,
+            limit: 60,
+            upgrade_message: 'Create an account to process longer videos'
+          });
+        }
+
+        // Increment guest usage
+        const { error: incrementError } = await supabaseAdmin
+          .rpc('increment_guest_usage', { p_ip_address: clientIP });
+        
+        if (incrementError) {
+          console.error('Error incrementing guest usage:', incrementError);
+          // Continue anyway, don't fail the request
+        }
+
+        const response: ExtractResponse = {
+          extraction: {
+            id: result.extractionId || '',
+            user_id: null,
+            video_url,
+            platform: result.videoInfo.platform,
+            video_title: result.videoInfo.title,
+            video_duration: result.videoInfo.duration,
+            transcript_text: result.transcript,
+            transcript_segments: result.segments,
+            status: 'completed',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          } as Extraction,
+          transcript: {
+            text: result.transcript,
+            segments: result.segments
+          },
+          guest_info: {
+            remaining_extractions: usage.remaining_extractions - 1,
+            reset_time: usage.reset_time
+          }
+        };
+
+        res.json(response);
+      } catch (processingError) {
+        console.error('Guest video processing error:', processingError);
+        return res.status(500).json({ error: processingError instanceof Error ? processingError.message : 'Failed to process video' });
+      }
+    } else {
+      // Authenticated user logic (existing functionality)
+      const today = new Date().toISOString().split('T')[0];
+      const { data: todayExtractions, error: countError } = await supabaseAdmin
+        .from('extractions')
+        .select('id')
+        .eq('user_id', req.user!.id)
+        .gte('created_at', today + 'T00:00:00.000Z')
+        .lt('created_at', today + 'T23:59:59.999Z');
+
+      if (countError) {
+        console.error('Error checking extraction count:', countError);
+        return res.status(500).json({ error: 'Failed to check extraction limits' });
+      }
+
+      const dailyLimit = req.user!.subscription_tier === 'pro' ? 100 : 5;
+      if (todayExtractions && todayExtractions.length >= dailyLimit) {
+        return res.status(429).json({ 
+          error: `Daily extraction limit reached (${dailyLimit} extractions per day)`,
+          upgrade_required: req.user!.subscription_tier === 'free'
+        });
+      }
+
+      // Process video using the existing authenticated flow
+      try {
+        const result = await processVideo(video_url, req.user!.id);
+        
+        const response: ExtractResponse = {
+          extraction: {
+            id: '', // Will be set by database
+            user_id: req.user!.id,
+            video_url,
+            platform: result.videoInfo.platform,
+            video_title: result.videoInfo.title,
+            video_duration: result.videoInfo.duration,
+            transcript_text: result.transcript,
+            transcript_segments: result.segments,
+            status: 'completed',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          } as Extraction,
+          transcript: {
+            text: result.transcript,
+            segments: result.segments
+          }
+        };
+
+        res.json(response);
+      } catch (processingError) {
+        console.error('Video processing error:', processingError);
+        return res.status(500).json({ error: processingError instanceof Error ? processingError.message : 'Failed to process video' });
+      }
+    }
+  } catch (error) {
+    console.error('Extraction error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // Extract transcript from video URL
 router.post('/video', authenticateToken, async (req: Request, res: Response) => {
@@ -42,7 +193,7 @@ router.post('/video', authenticateToken, async (req: Request, res: Response) => 
       return res.status(500).json({ error: 'Failed to check extraction limits' });
     }
 
-    const dailyLimit = req.user.subscription_tier === 'premium' ? 100 : 5;
+    const dailyLimit = req.user.subscription_tier === 'pro' ? 100 : 5;
     if (todayExtractions && todayExtractions.length >= dailyLimit) {
       return res.status(429).json({ 
         error: `Daily extraction limit reached (${dailyLimit} extractions per day)`,

@@ -6,7 +6,7 @@ import cors from 'cors';
 import { ApiError } from '../../shared/types.js';
 
 // Re-export auth middleware
-export { authenticateToken, optionalAuth, requireSubscription } from './auth.js';
+export { authenticateToken, optionalAuth, requireSubscription, allowGuest } from './auth.js';
 
 // CORS configuration
 export const corsOptions = {

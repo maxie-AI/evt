@@ -15,10 +15,15 @@ interface ExtractionState {
   currentExtraction: Extraction | null;
   isExtracting: boolean;
   extractionError: string | null;
+  guestInfo: {
+    remainingExtractions: number;
+    resetTime: string | null;
+  } | null;
 }
 
 interface ExportState {
   exportJobs: ExportJob[];
+  exports: ExportJob[];
   isExporting: boolean;
   exportError: string | null;
 }
@@ -32,11 +37,13 @@ interface AppState extends AuthState, ExtractionState, ExportState {
   clearAuthError: () => void;
 
   // Extraction actions
-  extractVideo: (videoUrl: string, language?: string) => Promise<void>;
+  extractVideo: (videoUrl: string, language?: string) => Promise<Extraction>;
+  extractVideoAsGuest: (videoUrl: string, language?: string) => Promise<Extraction>;
   getExtractions: () => Promise<void>;
   getExtraction: (id: string) => Promise<void>;
   deleteExtraction: (id: string) => Promise<void>;
   clearExtractionError: () => void;
+  setGuestInfo: (info: { remainingExtractions: number; resetTime: string | null } | null) => void;
 
   // Export actions
   exportTranscript: (extractionId: string, format: string) => Promise<void>;
@@ -58,7 +65,9 @@ export const useStore = create<AppState>()(persist(
     currentExtraction: null,
     isExtracting: false,
     extractionError: null,
+    guestInfo: null,
     exportJobs: [],
+    exports: [],
     isExporting: false,
     exportError: null,
 
@@ -119,7 +128,8 @@ export const useStore = create<AppState>()(persist(
           isLoading: false,
           extractions: [],
           currentExtraction: null,
-          exportJobs: []
+          exportJobs: [],
+          exports: []
         });
       } catch (error) {
         console.error('Logout error:', error);
@@ -156,7 +166,7 @@ export const useStore = create<AppState>()(persist(
     clearAuthError: () => set({ error: null }),
 
     // Extraction actions
-    extractVideo: async (videoUrl: string, language = 'auto') => {
+    extractVideo: async (videoUrl: string, language = 'auto'): Promise<Extraction> => {
       set({ isExtracting: true, extractionError: null });
       try {
         const response = await api.call('/api/extract/video', {
@@ -170,6 +180,8 @@ export const useStore = create<AppState>()(persist(
           currentExtraction: response.extraction,
           isExtracting: false 
         });
+        
+        return response.extraction;
       } catch (error) {
         set({ 
           extractionError: error instanceof Error ? error.message : 'Extraction failed', 
@@ -217,7 +229,42 @@ export const useStore = create<AppState>()(persist(
       }
     },
 
+    extractVideoAsGuest: async (videoUrl: string, language = 'auto'): Promise<Extraction> => {
+      set({ isExtracting: true, extractionError: null });
+      try {
+        const response = await api.call('/api/extract/guest', {
+          method: 'POST',
+          body: JSON.stringify({ video_url: videoUrl, language })
+        });
+        
+        // Update guest info if provided
+        if (response.guest_info) {
+          set({ 
+            guestInfo: {
+              remainingExtractions: response.guest_info.remaining_extractions,
+              resetTime: response.guest_info.reset_time
+            }
+          });
+        }
+        
+        set({ 
+          currentExtraction: response.extraction,
+          isExtracting: false 
+        });
+        
+        return response.extraction;
+      } catch (error) {
+        set({ 
+          extractionError: error instanceof Error ? error.message : 'Extraction failed', 
+          isExtracting: false 
+        });
+        throw error;
+      }
+    },
+
     clearExtractionError: () => set({ extractionError: null }),
+
+    setGuestInfo: (info) => set({ guestInfo: info }),
 
     // Export actions
     exportTranscript: async (extractionId: string, format: string) => {

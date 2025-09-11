@@ -1,13 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Upload, Clock, FileText, Zap, Shield } from 'lucide-react';
+import { Play, Upload, Clock, FileText, Zap, Shield, Users, UserCheck } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { toast } from 'sonner';
 
 const Home: React.FC = () => {
   const [url, setUrl] = useState('');
-  const { user, extractVideo, isLoading } = useStore();
+  const [useGuestMode, setUseGuestMode] = useState(false);
+  const { user, extractVideo, extractVideoAsGuest, isLoading, guestInfo, setGuestInfo } = useStore();
   const navigate = useNavigate();
+
+  // Initialize guest mode if user is not authenticated
+  useEffect(() => {
+    if (!user) {
+      setUseGuestMode(true);
+    }
+  }, [user]);
 
   const supportedPlatforms = [
     { name: 'YouTube', icon: '🎥', example: 'https://www.youtube.com/watch?v=...' },
@@ -45,12 +53,6 @@ const Home: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!user) {
-      toast.error('Please log in to extract transcripts');
-      navigate('/login');
-      return;
-    }
-
     if (!url.trim()) {
       toast.error('Please enter a video URL');
       return;
@@ -62,13 +64,28 @@ const Home: React.FC = () => {
     }
 
     try {
-      const result = await extractVideo(url);
-      if (result) {
+      if (useGuestMode || !user) {
+        // Guest mode extraction
+        const result = await extractVideoAsGuest(url);
+        toast.success('Video processed successfully! (Guest Mode)');
+        navigate(`/transcript/${result.id}`);
+      } else {
+        // Authenticated user extraction
+        const result = await extractVideo(url);
         toast.success('Video processed successfully!');
         navigate(`/transcript/${result.id}`);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to process video');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to process video';
+      
+      // Handle specific guest mode errors
+      if (errorMessage.includes('Daily limit reached')) {
+        toast.error('Daily limit reached! Guest users can extract 1 video per day. Create an account for higher limits.');
+      } else if (errorMessage.includes('duration exceeds')) {
+        toast.error('Video too long! Guest users can only process videos up to 1 minute. Create an account for longer videos.');
+      } else {
+        toast.error(errorMessage);
+      }
     }
   };
 
@@ -91,6 +108,59 @@ const Home: React.FC = () => {
 
             {/* URL Input Form */}
             <div className="max-w-2xl mx-auto">
+              {/* Mode Toggle for authenticated users */}
+              {user && (
+                <div className="mb-6 flex justify-center">
+                  <div className="bg-gray-100 p-1 rounded-lg flex">
+                    <button
+                       onClick={() => setUseGuestMode(false)}
+                       className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors ${
+                         !useGuestMode ? 'bg-white shadow-sm text-purple-600' : 'text-gray-600 hover:text-gray-800'
+                       }`}
+                     >
+                       <UserCheck className="h-4 w-4" />
+                       Premium Mode
+                     </button>
+                     <button
+                       onClick={() => setUseGuestMode(true)}
+                       className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors ${
+                         useGuestMode ? 'bg-white shadow-sm text-purple-600' : 'text-gray-600 hover:text-gray-800'
+                       }`}
+                     >
+                       <Users className="h-4 w-4" />
+                       Guest Mode
+                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Guest Mode Info */}
+              {(useGuestMode || !user) && (
+                <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Users className="h-5 w-5 text-yellow-600" />
+                    <h3 className="font-semibold text-yellow-800">Guest Mode Limits</h3>
+                  </div>
+                  <div className="text-sm text-yellow-700 space-y-1">
+                    <p>• 1 video extraction per day</p>
+                    <p>• Maximum video duration: 1 minute</p>
+                    {guestInfo && (
+                      <p className="font-medium">
+                        Remaining extractions today: {guestInfo.remainingExtractions}
+                        {guestInfo.resetTime && (
+                          <span className="block text-xs">
+                            Resets at: {new Date(guestInfo.resetTime).toLocaleString()}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                    <p className="text-xs mt-2">
+                      <span className="font-medium">Want more?</span> Create an account for unlimited extractions and longer videos!
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-xl p-6 mb-8">
                 <div className="flex flex-col sm:flex-row gap-4">
                   <div className="flex-1">
@@ -105,7 +175,7 @@ const Home: React.FC = () => {
                   </div>
                   <button
                     type="submit"
-                    disabled={isLoading || !url.trim()}
+                    disabled={isLoading || !url.trim() || (guestInfo && guestInfo.remainingExtractions <= 0)}
                     className="px-8 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center"
                   >
                     {isLoading ? (
@@ -116,11 +186,16 @@ const Home: React.FC = () => {
                     ) : (
                       <>
                         <Play className="h-5 w-5 mr-2" />
-                        Extract
+                        {(useGuestMode || !user) ? 'Extract (Guest)' : 'Extract'}
                       </>
                     )}
                   </button>
                 </div>
+                {guestInfo && guestInfo.remainingExtractions <= 0 && (
+                  <p className="text-red-600 text-sm mt-2 text-center">
+                    Daily limit reached. Try again tomorrow or create an account for unlimited access.
+                  </p>
+                )}
               </form>
 
               {/* Supported Platforms */}

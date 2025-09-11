@@ -90,3 +90,46 @@ export const requireSubscription = (minTier: 'pro' | 'enterprise') => {
     next();
   };
 };
+
+// Middleware for guest access - allows both authenticated and guest users
+export const allowGuest = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+        
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('*')
+          .eq('id', decoded.userId)
+          .single();
+
+        if (user) {
+          req.user = user;
+        }
+      } catch (error) {
+        // Invalid token, continue as guest
+        console.log('Invalid token, continuing as guest:', error);
+      }
+    }
+    
+    // Add guest info to request if no authenticated user
+    if (!req.user) {
+      const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 
+        (req.connection as any)?.socket?.remoteAddress || '127.0.0.1';
+      
+      (req as any).guestInfo = {
+        ip: clientIP,
+        isGuest: true
+      };
+    }
+    
+    next();
+  } catch (error) {
+    console.error('Guest auth middleware error:', error);
+    next(); // Continue as guest even on error
+  }
+};

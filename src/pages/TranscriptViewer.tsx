@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Download, Edit3, Save, X, Copy, Search, Clock, ExternalLink } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { toast } from 'sonner';
-import type { Extraction } from '../shared/types';
+import type { Extraction } from '../../shared/types';
 
 const TranscriptViewer: React.FC = () => {
   const { id } = useParams<{ id: string }>();
