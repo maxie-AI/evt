@@ -5,6 +5,7 @@ import { useStore } from '../store/useStore';
 import { toast } from 'sonner';
 import { api } from '../lib/supabase';
 
+// VTX - Video Transcript eXtractor with example URL feature
 const Home: React.FC = () => {
   const { 
     user, 
