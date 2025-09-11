@@ -114,7 +114,7 @@ export const extractTranscriptWithLimit = async (videoInfo: VideoInfo, maxDurati
 
     // Extract audio from video
     console.log('Extracting audio from video...');
-    audioResult = await audioExtractor.extractAudio(videoInfo.url, maxDurationSeconds);
+    audioResult = await audioExtractor.extractAudio(videoInfo.url);
     
     // Validate file size before transcription
     const isValidSize = await transcriptionService.validateFileSize(audioResult.audioPath);

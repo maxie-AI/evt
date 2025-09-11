@@ -47,12 +47,12 @@ export class TranscriptionService {
       }
 
       // Call OpenAI Whisper API
-      const response = await this.openai.audio.transcriptions.create(transcriptionOptions);
+      const response = await this.openai.audio.transcriptions.create(transcriptionOptions) as any;
 
       // Process the response
       const segments: TranscriptSegment[] = [];
       
-      if (response.segments) {
+      if (response.segments && Array.isArray(response.segments)) {
         for (const segment of response.segments) {
           segments.push({
             start: segment.start,
