@@ -1,6 +1,12 @@
-# React + TypeScript + Vite
+# VTX - Video Transcript Extractor
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A modern React + TypeScript + Vite application for extracting transcripts from YouTube videos with AI-powered processing.
+
+## Features
+- Extract transcripts from YouTube videos
+- AI-powered video processing
+- Clean, modern VTX branding
+- Example URL feature for quick testing
 
 Currently, two official plugins are available:
 
