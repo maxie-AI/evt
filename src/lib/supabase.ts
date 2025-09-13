@@ -72,31 +72,61 @@ export const api = {
   call: async (endpoint: string, options: RequestInit = {}) => {
     const headers = await api.getAuthHeaders();
     
-    // For video processing endpoints, use local API directly
+    // For video processing endpoints, use appropriate API based on environment
     if (endpoint === '/api/extract/guest' || endpoint === '/api/extract/video') {
-      const localApiUrl = `http://localhost:3001${endpoint}`;
-      
-      try {
-        const response = await fetch(localApiUrl, {
-          ...options,
-          headers: {
-            ...headers,
-            ...options.headers,
-          },
-        });
+      // In production, use Supabase Edge Functions directly
+      if (import.meta.env.PROD || window.location.hostname !== 'localhost') {
+        const functionName = endpoint === '/api/extract/guest' ? 'extract-guest' : 'extract-video';
+        const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+        
+        try {
+          const response = await fetch(functionUrl, {
+            ...options,
+            headers: {
+              ...headers,
+              ...options.headers,
+            },
+          });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`Local API failed for ${endpoint}:`, response.status, errorText);
-          throw new Error(`API call failed: ${response.status} ${errorText}`);
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Edge Function failed for ${endpoint}:`, response.status, errorText);
+            throw new Error(`API call failed: ${response.status} ${errorText}`);
+          }
+
+          const result = await response.json();
+          console.log(`✅ Edge Function success for ${endpoint}:`, result);
+          return result;
+        } catch (error) {
+          console.warn(`Edge Function error for ${endpoint}:`, error, 'using fallback');
+          return api.fallback(endpoint, options);
         }
+      } else {
+        // In development, use local API
+        const localApiUrl = `http://localhost:3001${endpoint}`;
+        
+        try {
+          const response = await fetch(localApiUrl, {
+            ...options,
+            headers: {
+              ...headers,
+              ...options.headers,
+            },
+          });
 
-        const result = await response.json();
-        console.log(`✅ Local API success for ${endpoint}:`, result);
-        return result;
-      } catch (error) {
-        console.warn(`Local API error for ${endpoint}:`, error, 'using fallback');
-        return api.fallback(endpoint, options);
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Local API failed for ${endpoint}:`, response.status, errorText);
+            throw new Error(`API call failed: ${response.status} ${errorText}`);
+          }
+
+          const result = await response.json();
+          console.log(`✅ Local API success for ${endpoint}:`, result);
+          return result;
+        } catch (error) {
+          console.warn(`Local API error for ${endpoint}:`, error, 'using fallback');
+          return api.fallback(endpoint, options);
+        }
       }
     }
     
@@ -105,6 +135,10 @@ export const api = {
     if (endpoint.startsWith('/api/progress/stream/')) {
       const sessionId = endpoint.split('/').pop();
       functionUrl = `${supabaseUrl}/functions/v1/progress-stream/${sessionId}`;
+    } else if (endpoint === '/api/extract/guest') {
+      functionUrl = `${supabaseUrl}/functions/v1/extract-guest`;
+    } else if (endpoint === '/api/extract/video') {
+      functionUrl = `${supabaseUrl}/functions/v1/extract-video`;
     } else if (endpoint === '/api/auth/login') {
       functionUrl = `${supabaseUrl}/functions/v1/auth/login`;
     } else if (endpoint === '/api/auth/register') {

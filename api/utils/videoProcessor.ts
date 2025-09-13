@@ -165,6 +165,7 @@ export async function extractVideoInfo(url: string): Promise<{
     const videoId = extractVideoId(url);
     
     const platformTitles = {
+      'youtube': 'YouTube Video',
       'bilibili': 'Bilibili Video',
       'redbook': 'Redbook Video'
     };

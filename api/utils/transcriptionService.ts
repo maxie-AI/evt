@@ -42,14 +42,13 @@ export class TranscriptionService {
   private client: OpenAI;
 
   constructor() {
-    // Don't initialize client in constructor to avoid errors in serverless cold starts
-  }
-
-  private getClient(): OpenAI {
-    if (!this.client) {
-      this.client = getOpenAIClient();
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is required');
     }
-    return this.client;
+    
+    this.client = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
   }
 
   /**
@@ -92,13 +91,11 @@ export class TranscriptionService {
         throw new Error(`Unsupported audio format: ${fileExtension}. Supported formats: ${supportedFormats.join(', ')}`);
       }
 
-      const client = this.getClient();
-      
       // Create file stream
       const audioStream = createReadStream(audioPath);
       
       // Transcribe using OpenAI Whisper
-      const transcription = await client.audio.transcriptions.create({
+      const transcription = await this.client.audio.transcriptions.create({
         file: audioStream,
         model: 'whisper-1',
         language: options.language,
@@ -185,7 +182,7 @@ export class TranscriptionService {
    */
   async isApiAvailable(): Promise<boolean> {
     try {
-      const client = this.getClient();
+      const client = this.client;
       // Try to list models to test API connectivity
       await client.models.list();
       return true;

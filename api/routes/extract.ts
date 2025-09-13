@@ -81,7 +81,7 @@ router.post('/guest', allowGuest, async (req: Request, res: Response) => {
         const response: ExtractResponse = {
           extraction: {
             id: `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            user_id: null,
+            user_id: `guest_${Date.now()}`,
             video_url,
             platform: result.metadata.platform,
             video_title: result.metadata.title,

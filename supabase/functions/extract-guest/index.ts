@@ -62,38 +62,95 @@ serve(async (req) => {
     const extractionId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
     
     try {
-      // Since Edge Functions can't call localhost, we'll implement a simplified version
-      // that indicates the system is working but needs the frontend to handle processing
       console.log('Processing video:', video_url)
       
-      // For now, we'll return a success response that indicates the system is working
-      // The frontend should handle the actual video processing through the local API
+      // Extract video metadata using yt-dlp API
+      const ytDlpResponse = await fetch('https://yt-dlp-api.vercel.app/api/info', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: video_url,
+          format: 'best[height<=720]'
+        })
+      })
+      
+      if (!ytDlpResponse.ok) {
+        throw new Error(`Failed to get video info: ${ytDlpResponse.status}`)
+      }
+      
+      const videoInfo = await ytDlpResponse.json()
+      
+      // Get audio URL for transcription
+      const audioUrl = videoInfo.formats?.find((f: any) => f.acodec !== 'none')?.url || videoInfo.url
+      
+      if (!audioUrl) {
+        throw new Error('No audio stream found in video')
+      }
+      
+      // Use OpenAI Whisper API for transcription
+      const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
+      if (!openaiApiKey) {
+        throw new Error('OpenAI API key not configured')
+      }
+      
+      // Download audio chunk (first 60 seconds for guests)
+      const audioResponse = await fetch(audioUrl, {
+        headers: {
+          'Range': 'bytes=0-10485760' // First ~10MB for guest users
+        }
+      })
+      
+      if (!audioResponse.ok) {
+        throw new Error(`Failed to download audio: ${audioResponse.status}`)
+      }
+      
+      const audioBlob = await audioResponse.blob()
+      
+      // Transcribe using OpenAI Whisper
+      const formData = new FormData()
+      formData.append('file', audioBlob, 'audio.webm')
+      formData.append('model', 'whisper-1')
+      formData.append('response_format', 'verbose_json')
+      if (language && language !== 'auto') {
+        formData.append('language', language)
+      }
+      
+      const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openaiApiKey}`
+        },
+        body: formData
+      })
+      
+      if (!transcriptionResponse.ok) {
+        const errorText = await transcriptionResponse.text()
+        throw new Error(`Transcription failed: ${transcriptionResponse.status} ${errorText}`)
+      }
+      
+      const transcription = await transcriptionResponse.json()
+      
       const extraction = {
         id: extractionId,
         user_id: 'guest',
         video_url,
         platform: 'youtube' as const,
-        video_title: 'Video Processing Available',
-        video_duration: 0,
-        transcript_text: 'Edge Function is working correctly. Video processing should be handled by the frontend through the local API at http://localhost:3001/api/extract/guest',
-        transcript_segments: [
-          {
-            start: 0,
-            end: 5,
-            text: 'Edge Function is working correctly.'
-          },
-          {
-            start: 5,
-            end: 15,
-            text: 'Video processing should be handled by the frontend through the local API.'
-          }
-        ],
+        video_title: videoInfo.title || 'Unknown Title',
+        video_duration: Math.min(videoInfo.duration || 0, 60), // Limit to 60 seconds for guests
+        transcript_text: transcription.text || '',
+        transcript_segments: transcription.segments?.map((seg: any) => ({
+          start: seg.start,
+          end: seg.end,
+          text: seg.text
+        })) || [],
         status: 'completed' as const,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }
       
-      // Store the extraction in Supabase for guest access
+      // Store the extraction in Supabase
       const { error: insertError } = await supabase
         .from('extractions')
         .insert(extraction)
@@ -105,7 +162,7 @@ serve(async (req) => {
       
       var realExtraction = extraction
     } catch (error) {
-      console.error('Edge Function processing failed, using fallback:', error)
+      console.error('Video processing failed:', error)
       
       // Fallback to mock data if real processing fails
       var realExtraction = {
@@ -113,19 +170,19 @@ serve(async (req) => {
         user_id: 'guest',
         video_url,
         platform: 'youtube' as const,
-        video_title: 'Sample Video Title (Fallback)',
+        video_title: 'Processing Failed - Using Fallback',
         video_duration: 120,
-        transcript_text: `This is a sample transcript generated by the fallback system when Supabase Edge Functions are unavailable. The extract function is working correctly, but using mock data instead of real video processing.`,
+        transcript_text: `Video processing failed: ${error instanceof Error ? error.message : 'Unknown error'}. This is fallback mock data. Please check the Edge Function logs for details.`,
         transcript_segments: [
           {
             start: 0,
             end: 5,
-            text: 'This is a sample transcript generated by the fallback system when Supabase Edge Functions are unavailable.'
+            text: 'Video processing failed. This is fallback mock data.'
           },
           {
             start: 5,
             end: 15,
-            text: 'The extract function is working correctly, but using mock data instead of real video processing.'
+            text: 'Please check the Edge Function configuration and try again.'
           }
         ],
         status: 'completed' as const,
