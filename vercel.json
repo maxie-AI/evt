@@ -16,6 +16,21 @@
     }
   },
   "env": {
-    "NODE_ENV": "production"
+    "NODE_ENV": "production",
+    "SUPABASE_URL": "https://ipwufgqutsdsimogpnvf.supabase.co",
+    "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlwd3VmZ3F1dHNkc2ltb2dwbnZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1NDU0MzQsImV4cCI6MjA3MzEyMTQzNH0.TBRJG4inbPo6lrjZwylCjnem7QkyJ1hLfX7meGc8RvA",
+    "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlwd3VmZ3F1dHNkc2ltb2dwbnZmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NzU0NTQzNCwiZXhwIjoyMDczMTIxNDM0fQ.PerN-nUqUId-x-vExIw3HsD_gHv-Ubg1BpY_mrZu520",
+    "VITE_SUPABASE_URL": "https://ipwufgqutsdsimogpnvf.supabase.co",
+    "VITE_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlwd3VmZ3F1dHNkc2ltb2dwbnZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1NDU0MzQsImV4cCI6MjA3MzEyMTQzNH0.TBRJG4inbPo6lrjZwylCjnem7QkyJ1hLfX7meGc8RvA",
+    "JWT_SECRET": "production-jwt-secret-key-2024-vst-app",
+    "JWT_EXPIRES_IN": "7d",
+    "PORT": "3001",
+    "CLIENT_URL": "https://vst-8ujll3ua3-maxie-ais-projects.vercel.app",
+    "RATE_LIMIT_WINDOW_MS": "900000",
+    "RATE_LIMIT_MAX_REQUESTS": "100",
+    "MAX_FILE_SIZE": "50000000",
+    "UPLOAD_DIR": "uploads",
+    "MAX_VIDEO_DURATION": "3600",
+    "TEMP_DIR": "temp"
   }
 }
