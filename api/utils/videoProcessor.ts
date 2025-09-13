@@ -197,33 +197,33 @@ export async function extractTranscript(
 }> {
   const { language, maxDuration = 600, isGuest = false } = options;
   
-  // Check if running in Vercel serverless environment
-  if (process.env.VERCEL) {
-    // Return mock transcript for serverless environment
-    const mockText = `Mock transcript for ${url}. This is a demonstration of the transcription service. In a production environment with proper server setup, this would contain the actual video transcript extracted using yt-dlp and OpenAI Whisper.`;
-    
-    return {
-      text: mockText,
-      segments: [
-        {
-          start: 0,
-          end: 60,
-          text: mockText
-        }
-      ]
-    };
-  }
+  console.log('🎬 STEP 1: Starting video transcript extraction...');
+  console.log(`📹 Video URL: ${url}`);
+  console.log(`👤 Guest mode: ${isGuest}`);
+  console.log(`⏱️ Max duration: ${maxDuration}s`);
+  console.log('⏳ Pausing for 2 seconds to show step...');
+  await new Promise(resolve => setTimeout(resolve, 2000));
 
   try {
     // Check if audio extractor is available
+    console.log('🔍 STEP 2: Checking audio extraction availability...');
     const isAudioExtractorAvailable = await audioExtractor.isAvailable();
     if (!isAudioExtractorAvailable) {
       throw new Error('Audio extraction not available in this environment');
     }
+    console.log('✅ Audio extractor is available!');
+    console.log('⏳ Pausing for 2 seconds...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Extract audio from video
-    console.log('Extracting audio from video...');
+    console.log('🎵 STEP 3: Downloading video and extracting audio...');
+    console.log('📥 Starting video download and MP3 extraction...');
     const audioResult = await audioExtractor.extractAudio(url);
+    console.log('✅ Audio extraction completed!');
+    console.log(`🎧 Audio file created: ${audioResult.audioPath}`);
+    console.log(`⏱️ Audio duration: ${audioResult.duration}s`);
+    console.log('⏳ Pausing for 2 seconds to show step...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
     try {
       // Apply time limit for guests
@@ -232,7 +232,9 @@ export async function extractTranscript(
       }
       
       // Transcribe audio
-      console.log('Transcribing audio...');
+      console.log('🤖 STEP 4: Starting AI transcription...');
+      console.log('🎙️ Sending audio to transcription service...');
+      console.log(`🌐 Language: ${language || 'auto-detect'}`);
       const transcriptionResult = await transcriptionService.transcribeAudio(
         audioResult.audioPath,
         {
@@ -240,6 +242,14 @@ export async function extractTranscript(
           maxDuration: isGuest ? maxDuration : undefined
         }
       );
+      console.log('✅ Transcription completed!');
+      console.log(`📝 Transcript length: ${transcriptionResult.text.length} characters`);
+      console.log(`📊 Segments: ${transcriptionResult.segments?.length || 0}`);
+      console.log('⏳ Pausing for 2 seconds to show final step...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      console.log('🎉 STEP 5: Transcript extraction completed successfully!');
+      console.log('📋 Returning transcript data...');
       
       return {
         text: transcriptionResult.text,

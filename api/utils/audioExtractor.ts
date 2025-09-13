@@ -5,30 +5,18 @@ import { promises as fs } from 'fs';
 import { createReadStream, createWriteStream } from 'fs';
 import { randomUUID } from 'crypto';
 import { existsSync, unlinkSync } from 'fs';
+import { spawn } from 'child_process';
 import { VideoPlatform } from '../../shared/types';
 
+/**
+ * Get the path to yt-dlp executable
+ * @returns Path to yt-dlp
+ */
 function getYtDlpPath(): string {
-  // For Vercel serverless environment, use system PATH
-  if (process.env.VERCEL) {
-    return 'yt-dlp';
-  }
-  
-  // Known Windows installation path for local development
-  const knownPath = 'C:\\Users\\tao\\AppData\\Roaming\\Python\\Python313\\Scripts\\yt-dlp.exe';
-  
-  // Fallback paths
-  const fallbackPaths = [
-    'yt-dlp',
-    'yt-dlp.exe',
-    '/usr/local/bin/yt-dlp',
-    '/usr/bin/yt-dlp'
-  ];
-  
-  if (platform() === 'win32') {
-    return knownPath;
-  }
-  
-  return fallbackPaths[0];
+  // Use batch file wrapper for yt-dlp-wrap compatibility on Windows
+  const path = './yt-dlp.bat';
+  console.log('🔧 Using yt-dlp path:', path, 'from cwd:', process.cwd());
+  return path;
 }
 
 export interface AudioExtractionResult {
@@ -39,67 +27,70 @@ export interface AudioExtractionResult {
 }
 
 export class AudioExtractor {
-  private ytDlp: any;
   private tempDir: string;
 
   constructor() {
     this.tempDir = tmpdir();
   }
 
-  private async initializeYtDlp() {
-    if (!this.ytDlp) {
-      try {
-        const YTDlpWrap = (await import('yt-dlp-wrap')).default;
-        this.ytDlp = new YTDlpWrap(getYtDlpPath());
-      } catch (error) {
-        console.error('Failed to initialize yt-dlp:', error);
-        throw new Error('yt-dlp initialization failed. This feature may not work in serverless environments.');
-      }
-    }
+  private async execYtDlp(args: string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+      console.log('🔧 Executing yt-dlp with args:', args);
+      const process = spawn('python', ['-m', 'yt_dlp', ...args], {
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      
+      let stdout = '';
+      let stderr = '';
+      
+      process.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+      
+      process.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+      
+      process.on('close', (code) => {
+        if (code === 0) {
+          resolve(stdout);
+        } else {
+          console.error('yt-dlp stderr:', stderr);
+          reject(new Error(`yt-dlp process exited with code ${code}: ${stderr}`));
+        }
+      });
+      
+      process.on('error', (error) => {
+        reject(error);
+      });
+    });
   }
 
   /**
    * Extract audio from video URL
    */
   async extractAudio(url: string): Promise<AudioExtractionResult> {
-    // Check if running in Vercel serverless environment
-    if (process.env.VERCEL) {
-      throw new Error('Audio extraction is not supported in serverless environment. Please use a different deployment method or implement a cloud-based solution.');
-    }
-
-    await this.initializeYtDlp();
+    // Skip serverless check for local development
+    console.log('🎵 AudioExtractor: Starting audio extraction for URL:', url);
     
     const audioId = randomUUID();
     const audioPath = join(this.tempDir, `${audioId}.mp3`);
 
     try {
       // Get video info first to extract metadata
-      const videoInfo = await this.ytDlp.getVideoInfo(url);
-      const title = Array.isArray(videoInfo) ? videoInfo[0]?.title : videoInfo?.title;
-      const duration = Array.isArray(videoInfo) ? videoInfo[0]?.duration : videoInfo?.duration;
+      const infoOutput = await this.execYtDlp(['--dump-json', '--no-download', url]);
+      const videoInfo = JSON.parse(infoOutput);
+      const title = videoInfo.title || 'Unknown';
+      const duration = videoInfo.duration || 0;
 
       // Extract audio using yt-dlp
-      await new Promise<void>((resolve, reject) => {
-        const ytDlpProcess = this.ytDlp.exec([
-          url,
-          '-x', // Extract audio only
-          '--audio-format', 'mp3',
-          '--audio-quality', '0', // Best quality
-          '-o', audioPath.replace('.mp3', '.%(ext)s')
-        ]);
-
-        ytDlpProcess.on('close', (code: number) => {
-          if (code === 0) {
-            resolve();
-          } else {
-            reject(new Error(`yt-dlp process exited with code ${code}`));
-          }
-        });
-
-        ytDlpProcess.on('error', (error: Error) => {
-          reject(error);
-        });
-      });
+      await this.execYtDlp([
+        url,
+        '-x', // Extract audio only
+        '--audio-format', 'mp3',
+        '--audio-quality', '0', // Best quality
+        '-o', audioPath.replace('.mp3', '.%(ext)s')
+      ]);
 
       // Verify the file was created
       if (!existsSync(audioPath)) {
@@ -108,8 +99,8 @@ export class AudioExtractor {
 
       return {
         audioPath,
-        duration: duration || 0,
-        title: title || 'Unknown',
+        duration,
+        title,
         cleanup: () => {
           if (existsSync(audioPath)) {
             unlinkSync(audioPath);
@@ -131,26 +122,11 @@ export class AudioExtractor {
    * @returns Video metadata
    */
   async getVideoInfo(url: string): Promise<{ title: string; duration: number; thumbnail?: string }> {
-    // Check if running in Vercel serverless environment
-    if (process.env.VERCEL) {
-      // Return mock data for serverless environment
-      return {
-        title: 'Video (Serverless Mode)',
-        duration: 300, // 5 minutes default
-        thumbnail: 'https://via.placeholder.com/320x180?text=Video'
-      };
-    }
+    // Skip serverless check for local development
+    console.log('📹 AudioExtractor: Getting video info for URL:', url);
 
     try {
-      await this.initializeYtDlp();
-      
-      const options = [
-        '--dump-json',
-        '--no-download',
-        url
-      ];
-
-      const output = await this.ytDlp.execPromise(options);
+      const output = await this.execYtDlp(['--dump-json', '--no-download', url]);
       const info = JSON.parse(output);
 
       return {
@@ -169,14 +145,11 @@ export class AudioExtractor {
    * @returns Promise<boolean>
    */
   async isAvailable(): Promise<boolean> {
-    // Always return false in Vercel serverless environment
-    if (process.env.VERCEL) {
-      return false;
-    }
+    // Skip serverless check for local development
+    console.log('🔍 AudioExtractor: Checking if yt-dlp is available...');
 
     try {
-      await this.initializeYtDlp();
-      await this.ytDlp.execPromise(['--version']);
+      await this.execYtDlp(['--version']);
       return true;
     } catch (error) {
       console.error('yt-dlp not available:', error);

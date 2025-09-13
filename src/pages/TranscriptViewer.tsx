@@ -18,7 +18,7 @@ const TranscriptViewer: React.FC = () => {
 
   useEffect(() => {
     if (id) {
-      // First check if this is the current extraction (for guest users)
+      // First check if this is the current extraction (for both guest and authenticated users)
       if (currentExtraction && currentExtraction.id === id) {
         setExtraction(currentExtraction);
         setEditedContent(currentExtraction.transcript_text || '');
@@ -38,9 +38,51 @@ const TranscriptViewer: React.FC = () => {
           getExtraction(id);
         }
       } else {
-        // Guest user trying to access an extraction that's not current
-        toast.error('Transcript not found or expired');
-        navigate('/');
+        // Guest user trying to access an extraction
+        if (id.startsWith('guest_')) {
+          setIsGuest(true);
+          // For guest users, we need to check if this transcript is available
+          // Guest transcripts are temporary and only available during the session
+          // If it's not the current extraction, it means the session has expired
+          if (currentExtraction && currentExtraction.id === id) {
+            setExtraction(currentExtraction);
+            setEditedContent(currentExtraction.transcript_text || '');
+          } else {
+            // Check if there's any stored guest transcript data in localStorage as fallback
+            const storedGuestData = localStorage.getItem(`guest_transcript_${id}`);
+            const expirationTime = localStorage.getItem(`guest_transcript_${id}_expires`);
+            
+            if (storedGuestData && expirationTime) {
+              const now = Date.now();
+              const expires = parseInt(expirationTime, 10);
+              
+              if (now < expires) {
+                try {
+                  const guestExtraction = JSON.parse(storedGuestData);
+                  setExtraction(guestExtraction);
+                  setEditedContent(guestExtraction.transcript_text || '');
+                } catch (error) {
+                  console.error('Failed to parse stored guest data:', error);
+                  // Clean up invalid data
+                  localStorage.removeItem(`guest_transcript_${id}`);
+                  localStorage.removeItem(`guest_transcript_${id}_expires`);
+                  setExtraction(null);
+                }
+              } else {
+                // Expired - clean up and show not available message
+                localStorage.removeItem(`guest_transcript_${id}`);
+                localStorage.removeItem(`guest_transcript_${id}_expires`);
+                setExtraction(null);
+              }
+            } else {
+              // Guest transcript not available - set extraction to null to show proper message
+              setExtraction(null);
+            }
+          }
+        } else {
+          toast.error('Transcript not found or expired');
+          navigate('/');
+        }
       }
     }
   }, [id, extractions, currentExtraction, user, navigate, getExtraction]);
@@ -138,6 +180,48 @@ const TranscriptViewer: React.FC = () => {
   };
 
   if (!extraction) {
+    // If it's a guest ID and no extraction, show expired message
+    if (id && id.startsWith('guest_') && isGuest) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center py-12">
+            <div className="mb-6">
+              <div className="mx-auto w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mb-4">
+                <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Guest Transcript Not Available</h3>
+              <p className="text-gray-600 mb-4 max-w-md mx-auto">
+                Guest transcripts are temporary and only available during your session. 
+                This transcript link has expired or is no longer accessible.
+              </p>
+              <div className="space-y-2 text-sm text-gray-500 mb-6">
+                <p>• Guest transcripts are not saved permanently</p>
+                <p>• Create an account to save and share your transcripts</p>
+                <p>• Signed-in users can access their transcripts anytime</p>
+              </div>
+            </div>
+            <div className="space-x-3">
+              <button
+                onClick={() => navigate('/')}
+                className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                Create New Transcript
+              </button>
+              <button
+                onClick={() => navigate('/login')}
+                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Sign Up / Log In
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    
+    // Otherwise show loading
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -263,13 +347,55 @@ const TranscriptViewer: React.FC = () => {
                   />
                 ) : (
                   <div className="prose max-w-none">
-                    <div
-                      className="text-base leading-relaxed text-gray-800"
-                      style={{ lineHeight: '1.8' }}
-                      dangerouslySetInnerHTML={{
-                        __html: `<p class="mb-4">${highlightSearchTerm(getFilteredContent(), searchTerm).replace(/\n\n/g, '</p><p class="mb-4">')}</p>`
-                      }}
-                    />
+                    {extraction.transcript_text ? (
+                       <div
+                         className="text-base leading-relaxed text-gray-800"
+                         style={{ lineHeight: '1.8' }}
+                         dangerouslySetInnerHTML={{
+                           __html: `<p class="mb-4">${highlightSearchTerm(getFilteredContent(), searchTerm).replace(/\n\n/g, '</p><p class="mb-4">')}</p>`
+                         }}
+                       />
+                     ) : (
+                       <div className="text-center py-12">
+                         <div className="mb-6">
+                           <div className="mx-auto w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mb-4">
+                             <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                             </svg>
+                           </div>
+                           <h3 className="text-xl font-semibold text-gray-900 mb-2">Transcript Not Available</h3>
+                           <p className="text-gray-600 mb-4 max-w-md mx-auto">
+                             {isGuest 
+                               ? "Guest transcripts are temporary and only available during your session. This transcript link has expired or is no longer accessible."
+                               : "This transcript could not be loaded or does not exist."
+                             }
+                           </p>
+                           {isGuest && (
+                             <div className="space-y-2 text-sm text-gray-500 mb-6">
+                               <p>• Guest transcripts are not saved permanently</p>
+                               <p>• Create an account to save and share your transcripts</p>
+                               <p>• Signed-in users can access their transcripts anytime</p>
+                             </div>
+                           )}
+                         </div>
+                         <div className="space-x-3">
+                           <button
+                             onClick={() => navigate('/')}
+                             className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                           >
+                             Create New Transcript
+                           </button>
+                           {isGuest && (
+                             <button
+                               onClick={() => navigate('/login')}
+                               className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                             >
+                               Sign Up / Log In
+                             </button>
+                           )}
+                         </div>
+                       </div>
+                     )}
                   </div>
                 )}
               </div>

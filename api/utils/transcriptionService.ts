@@ -67,11 +67,8 @@ export class TranscriptionService {
       maxDuration?: number;
     } = {}
   ): Promise<TranscriptionResult> {
-    // Check if running in Vercel serverless environment
-    if (process.env.VERCEL) {
-      // Return mock transcription for serverless environment
-      return this.getMockTranscription(options.maxDuration);
-    }
+    // Skip serverless check for local development
+    console.log('🤖 TranscriptionService: Starting transcription for audio file:', audioPath);
 
     try {
       // Validate file exists
@@ -171,9 +168,7 @@ export class TranscriptionService {
    * @returns Detected language code
    */
   async detectLanguage(audioPath: string): Promise<string> {
-    if (process.env.VERCEL) {
-      return 'en'; // Default to English in serverless
-    }
+    console.log('🌐 TranscriptionService: Detecting language for audio file:', audioPath);
 
     try {
       const result = await this.transcribeAudio(audioPath, { temperature: 0 });

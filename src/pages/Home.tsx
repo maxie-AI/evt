@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Upload, Clock, FileText, Zap, Shield, Users, UserCheck, Download, ArrowRight, CheckCircle } from 'lucide-react';
+import { Play, Upload, Clock, FileText, Zap, Shield, Users, UserCheck, Download, ArrowRight, CheckCircle, Code } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { toast } from 'sonner';
 import { api } from '../lib/supabase';
@@ -27,6 +27,24 @@ const Home: React.FC = () => {
   const [useExample, setUseExample] = useState(false);
   const exampleUrl = 'https://www.youtube.com/watch?v=c0m6yaGlZh4';
   const navigate = useNavigate();
+
+  // Revision version tracker
+  const CURRENT_REVISION = 'v2.2.0';
+  const getRevisionInfo = () => {
+    const lastUpdate = localStorage.getItem('lastRevisionUpdate');
+    const currentVersion = localStorage.getItem('currentRevision') || 'v2.0.0';
+    
+    // Update version if this is a new revision
+    if (currentVersion !== CURRENT_REVISION) {
+      localStorage.setItem('currentRevision', CURRENT_REVISION);
+      localStorage.setItem('lastRevisionUpdate', new Date().toISOString());
+      return { version: CURRENT_REVISION, lastUpdate: new Date().toISOString() };
+    }
+    
+    return { version: currentVersion, lastUpdate };
+  };
+  
+  const revisionInfo = getRevisionInfo();
 
   // Initialize guest mode if user is not authenticated
   useEffect(() => {
@@ -113,12 +131,25 @@ const Home: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-indigo-100">
       {/* Hero Section */}
       <div className="relative overflow-hidden">
+        {/* Revision Version Display */}
+        <div className="absolute top-4 right-4 z-20">
+          <div className="bg-white bg-opacity-90 backdrop-blur-sm rounded-lg px-3 py-2 flex items-center gap-2 text-sm shadow-sm">
+            <Code className="h-4 w-4 text-purple-600" />
+            <span className="font-mono text-gray-800">{revisionInfo.version}</span>
+            {revisionInfo.lastUpdate && (
+              <span className="text-gray-500 text-xs">
+                • Updated {new Date(revisionInfo.lastUpdate).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+        </div>
+        
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-16">
           <div className="text-center">
             <h1 className="text-4xl md:text-6xl font-bold text-gray-900 mb-6">
-              Extract Video
+              Video Transcript
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600">
-                {' '}Transcripts
+                {' '}eXtractor
               </span>
             </h1>
             <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
@@ -358,6 +389,23 @@ const Home: React.FC = () => {
           </div>
         </div>
       )}
+      
+      {/* System Information Footer */}
+      <div className="py-4 bg-gray-50 border-t border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center text-xs text-gray-500">
+            <div className="flex items-center gap-4">
+              <span>Revision: {revisionInfo.version}</span>
+              {revisionInfo.lastUpdate && (
+                <span>Updated: {new Date(revisionInfo.lastUpdate).toLocaleDateString()}</span>
+              )}
+            </div>
+            <div>
+              Session: {new Date().toLocaleString()}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

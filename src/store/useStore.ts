@@ -187,26 +187,55 @@ export const useStore = create<AppState>()(persist(
         // Initialize progress
         setProgressStatus('Connecting...', 'initializing', 30);
         
-        // Set up SSE connection for progress updates
-        const eventSource = new EventSource(`/api/progress/stream/${sessionId}`);
+        // Set up SSE connection for progress updates with fallback
+        const progressUrl = `${import.meta.env.VITE_SUPABASE_URL || 'https://ipwufgqutsdsimogpnvf.supabase.co'}/functions/v1/progress-stream/${sessionId}`;
+        let eventSource: EventSource | null = null;
+        let mockProgressInterval: NodeJS.Timeout | null = null;
         
-        eventSource.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'progress') {
-              setProgressStatus(data.status, data.stage, data.estimatedTime);
-            } else if (data.type === 'complete') {
-              eventSource.close();
+        try {
+          eventSource = new EventSource(progressUrl);
+          
+          eventSource.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              if (data.type === 'progress') {
+                setProgressStatus(data.status, data.stage, data.estimatedTime);
+              } else if (data.type === 'complete') {
+                eventSource?.close();
+              }
+            } catch (e) {
+              console.error('Error parsing SSE data:', e);
             }
-          } catch (e) {
-            console.error('Error parsing SSE data:', e);
-          }
-        };
-        
-        eventSource.onerror = (error) => {
-          console.error('SSE connection error:', error);
-          eventSource.close();
-        };
+          };
+          
+          eventSource.onerror = (error) => {
+            console.warn('SSE connection failed, using mock progress updates');
+            eventSource?.close();
+            eventSource = null;
+            
+            // Start mock progress updates
+             let progress = 0;
+             const stages = [
+               { status: 'Downloading video...', stage: 'downloading' as const, time: 15 },
+               { status: 'Extracting audio...', stage: 'extracting' as const, time: 10 },
+               { status: 'Transcribing audio...', stage: 'transcribing' as const, time: 5 },
+               { status: 'Processing transcript...', stage: 'finalizing' as const, time: 2 }
+             ];
+            
+            mockProgressInterval = setInterval(() => {
+              if (progress < stages.length) {
+                const stage = stages[progress];
+                setProgressStatus(stage.status, stage.stage, stage.time);
+                progress++;
+              } else {
+                clearInterval(mockProgressInterval!);
+                mockProgressInterval = null;
+              }
+            }, 2000);
+          };
+        } catch (error) {
+          console.warn('Failed to create SSE connection, using mock progress');
+        }
         
         const response = await api.call('/api/extract/video', {
           method: 'POST',
@@ -231,7 +260,10 @@ export const useStore = create<AppState>()(persist(
         // Clear progress after a short delay
         setTimeout(() => {
           clearProgress();
-          eventSource.close();
+          eventSource?.close();
+          if (mockProgressInterval) {
+            clearInterval(mockProgressInterval);
+          }
         }, 2000);
         
         return response.extraction;
@@ -294,26 +326,55 @@ export const useStore = create<AppState>()(persist(
         // Initialize progress
         setProgressStatus('Connecting...', 'initializing', 30);
         
-        // Set up SSE connection for progress updates
-        const eventSource = new EventSource(`/api/progress/stream/${sessionId}`);
+        // Set up SSE connection for progress updates with fallback
+        const progressUrl = `${import.meta.env.VITE_SUPABASE_URL || 'https://ipwufgqutsdsimogpnvf.supabase.co'}/functions/v1/progress-stream/${sessionId}`;
+        let eventSource: EventSource | null = null;
+        let mockProgressInterval: NodeJS.Timeout | null = null;
         
-        eventSource.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'progress') {
-              setProgressStatus(data.status, data.stage, data.estimatedTime);
-            } else if (data.type === 'complete') {
-              eventSource.close();
+        try {
+          eventSource = new EventSource(progressUrl);
+          
+          eventSource.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              if (data.type === 'progress') {
+                setProgressStatus(data.status, data.stage, data.estimatedTime);
+              } else if (data.type === 'complete') {
+                eventSource?.close();
+              }
+            } catch (e) {
+              console.error('Error parsing SSE data:', e);
             }
-          } catch (e) {
-            console.error('Error parsing SSE data:', e);
-          }
-        };
-        
-        eventSource.onerror = (error) => {
-          console.error('SSE connection error:', error);
-          eventSource.close();
-        };
+          };
+          
+          eventSource.onerror = (error) => {
+            console.warn('SSE connection failed, using mock progress updates');
+            eventSource?.close();
+            eventSource = null;
+            
+            // Start mock progress updates
+              let progress = 0;
+              const stages = [
+                { status: 'Downloading video...', stage: 'downloading' as const, time: 15 },
+                { status: 'Extracting audio...', stage: 'extracting' as const, time: 10 },
+                { status: 'Transcribing audio...', stage: 'transcribing' as const, time: 5 },
+                { status: 'Processing transcript...', stage: 'finalizing' as const, time: 2 }
+              ];
+            
+            mockProgressInterval = setInterval(() => {
+              if (progress < stages.length) {
+                const stage = stages[progress];
+                setProgressStatus(stage.status, stage.stage, stage.time);
+                progress++;
+              } else {
+                clearInterval(mockProgressInterval!);
+                mockProgressInterval = null;
+              }
+            }, 2000);
+          };
+        } catch (error) {
+          console.warn('Failed to create SSE connection, using mock progress');
+        }
         
         const response = await api.call('/api/extract/guest', {
           method: 'POST',
@@ -337,6 +398,21 @@ export const useStore = create<AppState>()(persist(
         // Complete progress
         setProgressStatus('Extraction completed!', 'completed', 0);
         
+        // Store guest transcript in localStorage for temporary access
+        if (response.extraction && response.extraction.id.startsWith('guest_')) {
+          localStorage.setItem(
+            `guest_transcript_${response.extraction.id}`, 
+            JSON.stringify(response.extraction)
+          );
+          
+          // Set expiration time (24 hours from now)
+          const expirationTime = Date.now() + (24 * 60 * 60 * 1000);
+          localStorage.setItem(
+            `guest_transcript_${response.extraction.id}_expires`, 
+            expirationTime.toString()
+          );
+        }
+        
         set({ 
           currentExtraction: response.extraction,
           isExtracting: false 
@@ -345,7 +421,10 @@ export const useStore = create<AppState>()(persist(
         // Clear progress after a short delay
         setTimeout(() => {
           clearProgress();
-          eventSource.close();
+          eventSource?.close();
+          if (mockProgressInterval) {
+            clearInterval(mockProgressInterval);
+          }
         }, 2000);
         
         return response.extraction;
