@@ -68,77 +68,33 @@ export const api = {
     };
   },
 
-  // Make authenticated API call with fallback system
+  // Main API function that routes directly to Supabase Edge Functions (bypassing Vercel API routes)
   call: async (endpoint: string, options: RequestInit = {}) => {
-    const headers = await api.getAuthHeaders();
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
     
-    // For video processing endpoints, use appropriate API based on environment
-    if (endpoint === '/api/extract/guest' || endpoint === '/api/extract/video') {
-      // In production, use Supabase Edge Functions directly
-      if (import.meta.env.PROD || window.location.hostname !== 'localhost') {
-        const functionName = endpoint === '/api/extract/guest' ? 'extract-guest' : 'extract-video';
-        const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
-        
-        try {
-          const response = await fetch(functionUrl, {
-            ...options,
-            headers: {
-              ...headers,
-              ...options.headers,
-            },
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`Edge Function failed for ${endpoint}:`, response.status, errorText);
-            throw new Error(`API call failed: ${response.status} ${errorText}`);
-          }
-
-          const result = await response.json();
-          console.log(`✅ Edge Function success for ${endpoint}:`, result);
-          return result;
-        } catch (error) {
-          console.warn(`Edge Function error for ${endpoint}:`, error, 'using fallback');
-          return api.fallback(endpoint, options);
-        }
-      } else {
-        // In development, use local API
-        const localApiUrl = `http://localhost:3001${endpoint}`;
-        
-        try {
-          const response = await fetch(localApiUrl, {
-            ...options,
-            headers: {
-              ...headers,
-              ...options.headers,
-            },
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`Local API failed for ${endpoint}:`, response.status, errorText);
-            throw new Error(`API call failed: ${response.status} ${errorText}`);
-          }
-
-          const result = await response.json();
-          console.log(`✅ Local API success for ${endpoint}:`, result);
-          return result;
-        } catch (error) {
-          console.warn(`Local API error for ${endpoint}:`, error, 'using fallback');
-          return api.fallback(endpoint, options);
-        }
-      }
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('❌ Supabase configuration missing');
+      return api.fallback(endpoint, options);
     }
-    
-    // Map other API endpoints to Supabase Edge Functions
+
+    const headers = {
+      'Authorization': `Bearer ${supabaseAnonKey}`,
+      'Content-Type': 'application/json',
+      'apikey': supabaseAnonKey,
+    };
+
+    // Map API endpoints directly to Supabase Edge Functions (skip Vercel API routes)
     let functionUrl;
     if (endpoint.startsWith('/api/progress/stream/')) {
       const sessionId = endpoint.split('/').pop();
       functionUrl = `${supabaseUrl}/functions/v1/progress-stream/${sessionId}`;
     } else if (endpoint === '/api/extract/guest') {
       functionUrl = `${supabaseUrl}/functions/v1/extract-guest`;
+      console.log('🚀 Calling Supabase Edge Function directly:', functionUrl);
     } else if (endpoint === '/api/extract/video') {
       functionUrl = `${supabaseUrl}/functions/v1/extract-video`;
+      console.log('🚀 Calling Supabase Edge Function directly:', functionUrl);
     } else if (endpoint === '/api/auth/login') {
       functionUrl = `${supabaseUrl}/functions/v1/auth/login`;
     } else if (endpoint === '/api/auth/register') {
@@ -170,7 +126,7 @@ export const api = {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`Edge Function failed for ${endpoint}:`, response.status, errorText);
+        console.error(`❌ Edge Function failed for ${endpoint}:`, response.status, errorText);
         
         // Only use fallback for specific error cases (404, 503, etc.)
         if (response.status === 404 || response.status === 503) {
@@ -188,7 +144,7 @@ export const api = {
     } catch (error) {
       // Only use fallback for network errors, not API errors
       if (error instanceof TypeError && error.message.includes('fetch')) {
-        console.warn(`Network error for ${endpoint}:`, error, 'using fallback');
+        console.warn(`⚠️ Network error for ${endpoint}:`, error, 'using fallback');
         return api.fallback(endpoint, options);
       }
       
